@@ -1,29 +1,42 @@
 # Polaris
 
-A single-file UI library for Roblox Luau. Drop it into any client script and get a themed, draggable, resizable window with tabs and every common control — no `:Init()` call required.
+A single-file UI library for Roblox Luau — plus a visual **Polaris Builder**: run it on its own and get an animated splash, then a block editor that generates your entire hub script for you.
 
 ```
-Polaris.luau   -- the entire library (one file)
+Polaris.luau   -- obfuscated distribution (the loadstring target)
+Builder.luau   -- builder launcher (splash + editor)
+src/           -- readable source for both
 example.luau   -- Studio LocalScript demo of every element
+MyHub.luau     -- a complete example hub built on Polaris
 tests/         -- logic test suite (runs under Lune)
+build/         -- obfuscation pipeline (repeatable build script)
 ```
 
 ## Status: prototype, logic-tested only
 
-- The code compiles under the Luau compiler, and a 35-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment (validation, clamping, drag clamping, config round-trips, deferred config loading, cleanup, theming, search).
-- **Visual rendering, dragging, touch handling, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
+- The code compiles under the Luau compiler, and a 45-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
+- **Visual rendering, dragging, touch handling, splash animation, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
 
 ## Quick start
 
-**Studio:** put `Polaris.luau` in ReplicatedStorage as a ModuleScript named `Polaris`, then in a LocalScript:
+**The Builder — run it on its own** (no coding needed):
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Builder.luau"))()
+```
+
+You get an animated splash, then a block editor: add tabs, sections and controls as blocks, edit their properties, preview the live result, and export a ready-to-paste script. The library file itself never opens anything on its own — the Builder only starts from `Builder.luau` (or an explicit `Polaris.Builder:Open()` call).
+
+**The library — use it in your own script:**
+
+```lua
+local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))()
+```
+
+**Studio:** put `src/Polaris.luau` in ReplicatedStorage as a ModuleScript named `Polaris`, then in a LocalScript:
 ```lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Polaris = require(ReplicatedStorage:WaitForChild("Polaris"))
-```
-
-**Executor** (once the file is on your GitHub):
-```lua
-local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))()
 ```
 
 ```lua
@@ -47,6 +60,17 @@ Tab:CreateToggle({
 })
 ```
 
+## Polaris Builder
+
+Open it with the `Builder.luau` loadstring above, or `Polaris.Builder:Open()` from your own code.
+
+- **Build tab** — set the hub name, theme, config folder; add blocks (Tab, Section, Button, Toggle, Slider, Dropdown, Keybind, Textbox, Color, Paragraph, Divider); the Structure list shows your whole hub as a tree and clicking a block selects it
+- **Properties tab** — edit the selected block: names, defaults, slider ranges, dropdown options, keybind keys, flags, and Move up/down, Duplicate, Delete
+- **Preview tab** — renders your project as a real Polaris window (config saving disabled so it never touches your saved configs)
+- **Export tab** — generates the full Luau script for your hub (loader line, window, tabs, every block with callback stubs), copy-to-clipboard where available, save-to-file on executors, plus project JSON export/import so you can save and reload builder projects
+
+Notes: new blocks are inserted after the selected block; the window name appears in the generated callback stubs; `Polaris.Builder.SplashDuration = 0` skips the splash; `Polaris.Builder:Close()` tears everything down (the project survives in memory).
+
 ## Features
 
 - **Window**: drag by title bar, resize via corner grip (min 400x280), minimize, close, toggle keybind, built-in search box that filters elements by name
@@ -55,10 +79,17 @@ Tab:CreateToggle({
 - **Uniform element API**: every element supports `:Set(value, silent?)`, `:Get()`, `:SetVisible()`, `:SetDisabled()`, `:Destroy()`
 - **Themes**: 3 built-in, live switching that updates existing elements, `AddTheme()` for custom themes
 - **Configs**: JSON export/import everywhere; file persistence (`Polaris/<folder>/<name>.json`) when the host provides `writefile`/`readfile` (executors), plus an in-memory fallback so save/load works even without file APIs
+- **Builder**: splash, block editor, live preview, code + JSON export (see above)
 - **Validation**: duplicate flags throw clear errors, sliders clamp and respect step size, dropdowns reject invalid options, config load/import warns about skipped values
 - **Client-safe**: only standard client APIs; CoreGui is probed with a fallback to PlayerGui, so it works in Studio and executors
 
-Design goals (exercised by the test suite): no `Init()` requirement; `:Get()`, `:SetVisible()`, `:SetDisabled()` and a silent-`Set` option on every element; live theme switching; element search; multi-select dropdowns; JSON config portability; deferred config auto-load; and teardown with connection cleanup.
+Design goals (exercised by the test suite): no `Init()` requirement; `:Get()`, `:SetVisible()`, `:SetDisabled()` and a silent-`Set` option on every element; live theme switching; element search; multi-select dropdowns; JSON config portability; deferred config auto-load; teardown with connection cleanup; and a builder whose generated scripts actually run.
+
+## About the obfuscated build
+
+The `Polaris.luau` at the repo root (the file the loadstrings fetch) is an obfuscated build of `src/Polaris.luau`. It is produced by `build/build.sh` — a deterministic pipeline that strips Luau-only syntax, then runs [Prometheus](https://github.com/prometheus-lua/Prometheus) with string encryption, constant-array shuffling, number mutation, and anti-tamper passes (the control-flow and VM passes are excluded because they emit `setfenv`-based code that cannot run in Roblox Luau). The full test suite is run against the exact published artifact before it is committed.
+
+This is distribution obfuscation — it deters casual reading and copy-paste editing of the loadstring target. It is not unbreakable protection, and the readable source and full history are public in `src/`.
 
 ## API
 
@@ -104,6 +135,19 @@ Tab:CreateSection({ Name = "Section" })
 Multi-select dropdown values are tables: `{"a", "b"}` when setting, `{a = true, b = true}` from `:Get()`.
 
 Two behavior notes: keybind callbacks mean "key was pressed", so config load/import restores keybind bindings **silently** (no activation fires); and disabling a textbox sets `TextEditable = false` and releases focus (`.Active` alone does not stop typing).
+
+### Builder
+
+| Member | Notes |
+|---|---|
+| `Polaris.Builder:Open()` | splash (if `SplashDuration > 0`) then the editor |
+| `Polaris.Builder:Close()` / `:IsOpen()` | teardown / state |
+| `Polaris.Builder:Generate()` | the hub script for the current project |
+| `Polaris.Builder:ExportJSON()` / `:ImportJSON(str)` | save / restore builder projects |
+| `Polaris.Builder:GetProject()` / `:SetProject(t)` / `:NewProject()` | direct project access |
+| `Polaris.Builder:OpenPreview()` / `:ClosePreview()` | live preview window |
+| `Polaris.Builder.SplashDuration` | seconds, default 1.6; 0 disables |
+| `Polaris.Builder.PolarisURL` | URL used in the generated loader line |
 
 ### Flags & Configs
 
@@ -160,21 +204,31 @@ Run `example.luau` as a LocalScript (library in ReplicatedStorage) and verify:
 10. `Window:ExportConfig()` prints JSON; `ImportConfig` restores values after changing them
 11. No errors in Output after `Window:Destroy()`
 
+Builder checklist (run `Polaris.Builder:Open()` in Studio):
+
+1. Splash: dark screen, expanding ring, POLARIS title fades in, progress bar fills, fades to the editor
+2. Add blocks, select them in Structure, edit them in Properties
+3. Open Preview — a real window with your blocks appears; Close Preview removes it
+4. Export: the generated code runs (paste it into a LocalScript with the library in ReplicatedStorage, replacing the loadstring line with a require)
+5. Project JSON export/import round-trips
+
 ## Testing
 
 Run from the project root:
 
 ```
-lune run tests/test.luau
+lune run tests/test.luau                    # tests the obfuscated root Polaris.luau
+lune run tests/test.luau src/Polaris.luau    # tests the readable source
 ```
 
-35 cases covering: window/tab/element creation, toggle Set/Get + silent Set + click simulation, slider clamping/step normalization/drag simulation, window drag clamping from a centered position, dropdown validation + multi-select + JSON map-form values + highlight refresh, color picker round trip, keybind input, textbox, paragraph updates, duplicate-flag errors, SetVisible/SetDisabled/Destroy cleanup (including stopping an in-progress slider drag when disabled), config export/import round trip, in-memory save→load, deferred config auto-load via the scheduler, SetTitle, late SetToggleKey, notification ScreenGui ancestry, theme application and switching (including recoloring an enabled toggle), search filtering, notification validation, toggle keybind, window/tab teardown, the cross-window flag registry, textbox disabling (TextEditable + focus release), and config restore never firing keybind activation callbacks.
+45 cases covering: window/tab/element creation, toggle Set/Get + silent Set + click simulation, slider clamping/step normalization/drag simulation, window drag clamping from a centered position, dropdown validation + multi-select + JSON map-form values + highlight refresh, color picker round trip, keybind input, textbox, paragraph updates, duplicate-flag errors, SetVisible/SetDisabled/Destroy cleanup (including stopping an in-progress slider drag when disabled), config export/import round trip, in-memory save→load, deferred config auto-load via the scheduler, SetTitle, late SetToggleKey, notification ScreenGui ancestry, theme application and switching (including recoloring an enabled toggle), search filtering, notification validation, toggle keybind, window/tab teardown, the cross-window flag registry, textbox disabling (TextEditable + focus release), config restore never firing keybind activation callbacks — plus the builder: default project shape and copy semantics, add-after-selection insertion, move/duplicate/delete, codegen (escaping, flags, options), JSON round-trip, UI lifecycle and reopen, splash cleanup, live preview windows, and generated scripts executed end-to-end against the mock environment.
 
 ## Limitations
 
 - Client-only (errors early if `Players.LocalPlayer` is nil)
-- Visuals/layout/input are unverified in a real Roblox client — see checklist above
+- Visuals/layout/input/splash are unverified in a real Roblox client — see checklists above
 - Paragraph height is estimated from text length, not measured
+- The obfuscated build is distribution obfuscation, not unbreakable protection (source is public in `src/`)
 
 ## License
 

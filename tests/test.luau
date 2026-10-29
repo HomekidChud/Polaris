@@ -12,7 +12,12 @@ local tasklib = require("@lune/task")
 ----------------------------------------------------------------
 
 local source
-if fs.isFile("Polaris.luau") then
+local process = require("@lune/process")
+local argPath = process.args and process.args[1]
+if argPath then
+	-- explicit path: lune run tests/test.luau src/Polaris.luau
+	source = fs.readFile(argPath)
+elseif fs.isFile("Polaris.luau") then
 	-- run from the project root: lune run tests/test.luau
 	source = fs.readFile("Polaris.luau")
 else
@@ -57,7 +62,7 @@ end
 
 check("library loads and exposes API", function()
 	assert(type(Polaris) == "table", "Polaris is not a table")
-	assert(Polaris.Version == "1.0.0", "wrong version")
+	assert(Polaris.Version == "1.1.0", "wrong version")
 	assert(type(Polaris.CreateWindow) == "function")
 	assert(type(Polaris.Themes.Default) == "table")
 	assert(type(Polaris.Notify) == "function")
@@ -472,6 +477,205 @@ check("config restore does not fire keybind activation callbacks", function()
 	assert(tg:Get() == true, "toggle not restored")
 	assert(kb:Get().Name == "F", "keybind value not restored")
 	w:Destroy()
+end)
+
+
+----------------------------------------------------------------
+-- Builder
+----------------------------------------------------------------
+
+local B
+
+check("builder module exposes API", function()
+	assert(type(Polaris.Builder) == "table", "Polaris.Builder missing")
+	assert(type(Polaris.Builder.Open) == "function")
+	assert(type(Polaris.Builder.Generate) == "function")
+	assert(type(Polaris.Builder.ExportJSON) == "function")
+	B = Polaris.Builder
+end)
+
+check("builder default project", function()
+	local p = B:GetProject()
+	assert(type(p.window) == "table" and p.window.Name == "My Hub")
+	assert(#p.tabs == 1 and #p.tabs[1].nodes == 2, "default project shape wrong")
+	p.window.Name = "mutated"
+	assert(B:GetProject().window.Name == "My Hub", "GetProject must return a copy")
+end)
+
+check("builder add block inserts after selection", function()
+	B:NewProject()
+	local proj = B._project
+	local tab = proj.tabs[1]
+	B:Select(tab, tab.nodes[2]) -- select the Toggle
+	local slider = B:AddBlock("Slider")
+	assert(slider ~= nil and slider.Kind == "Slider")
+	assert(#tab.nodes == 3, "slider not added")
+	assert(tab.nodes[3].Kind == "Slider" and tab.nodes[2].Kind == "Toggle", "slider not inserted after selection")
+	assert(slider.Flag ~= nil and slider.Flag ~= "fly", "auto flag missing or colliding")
+	local btn = B:AddBlock("Button")
+	assert(tab.nodes[4] == btn and tab.nodes[3].Kind == "Slider", "second add should follow the new selection")
+end)
+
+check("builder move, duplicate, delete", function()
+	B:NewProject()
+	local proj = B._project
+	local tab = proj.tabs[1]
+	B:Select(tab, tab.nodes[1]) -- Section
+	assert(B:MoveSelected(1) == true, "move down failed")
+	assert(tab.nodes[1].Kind == "Toggle" and tab.nodes[2].Kind == "Section", "move down did not swap")
+	assert(B:MoveSelected(-1) == true, "move up failed")
+	assert(B:MoveSelected(-1) == false, "move above first should fail")
+	B:Select(tab, tab.nodes[2]) -- Toggle (flag fly)
+	local dup = B:DuplicateSelected()
+	assert(dup.Kind == "Toggle" and dup.Flag ~= "fly" and dup.Flag ~= "", "duplicate flag must be unique")
+	assert(#tab.nodes == 3 and tab.nodes[3] == dup, "duplicate not inserted after original")
+	assert(B:DeleteSelected() == true, "delete failed")
+	assert(#tab.nodes == 2, "delete did not remove node")
+	-- deleting the last tab is allowed
+	B:Select(tab, nil)
+	assert(B:DeleteSelected() == true, "delete tab failed")
+	assert(#proj.tabs == 0)
+	local t2 = B:AddTab("Fresh")
+	assert(#proj.tabs == 1 and t2.Name == "Fresh")
+end)
+
+check("builder codegen", function()
+	B:NewProject()
+	local proj = B._project
+	proj.window.Name = 'My "Hub"'
+	local tab = proj.tabs[1]
+	B:Select(tab, tab.nodes[2])
+	local dd = B:AddBlock("Dropdown")
+	dd.Options = "red, green, blue"
+	dd.Multiple = true
+	local code = B:Generate()
+	assert(type(code) == "string" and #code > 0)
+	assert(code:find("loadstring(game:HttpGet(", 1, true) ~= nil, "loader line missing")
+	assert(code:find('Name = "My \\"Hub\\""', 1, true) ~= nil, "window name not escaped")
+	assert(code:find('Flag = "fly"', 1, true) ~= nil, "toggle flag missing")
+	assert(code:find(":CreateDropdown(", 1, true) ~= nil, "dropdown missing")
+	assert(code:find('Options = { "red", "green", "blue" }', 1, true) ~= nil, "dropdown options wrong")
+	assert(code:find("Multiple = true", 1, true) ~= nil, "multi-select missing")
+	assert(code:find(":CreateSection(", 1, true) ~= nil, "section missing")
+end)
+
+check("builder JSON round trip", function()
+	B:NewProject()
+	local proj = B._project
+	proj.window.Name = "RoundTrip"
+	local tab = proj.tabs[1]
+	B:Select(tab, tab.nodes[2])
+	B:AddBlock("Slider")
+	local json = B:ExportJSON()
+	B:NewProject()
+	B:ImportJSON(json)
+	local p = B:GetProject()
+	assert(p.window.Name == "RoundTrip", "window name lost in JSON round trip")
+	assert(#p.tabs[1].nodes == 3, "nodes lost in JSON round trip")
+	assert(p.tabs[1].nodes[3].Kind == "Slider", "slider lost in JSON round trip")
+	local ok, err = pcall(function()
+		B:ImportJSON("{not json")
+	end)
+	assert(not ok, "invalid JSON should error")
+end)
+
+check("builder UI lifecycle", function()
+	B.SplashDuration = 0
+	B:Close()
+	assert(B:IsOpen() == false, "builder should start closed")
+	B:Open()
+	assert(B:IsOpen() == true, "builder should be open")
+	assert(#B._window._tabs == 4, "builder should have Build/Properties/Preview/Export tabs")
+	-- structure list shows the default project's blocks
+	local structLabels = {}
+	for _, el in B._structElements do
+		table.insert(structLabels, el._config.Name)
+	end
+	local foundToggle = false
+	for _, l in structLabels do
+		if l:find("Toggle", 1, true) then
+			foundToggle = true
+		end
+	end
+	assert(foundToggle, "structure list does not show the default toggle")
+	B:Close()
+	assert(B:IsOpen() == false, "builder should be closed")
+	assert(B._window == nil, "window reference not cleared")
+	assert(B._project ~= nil, "project should survive close")
+	-- reopen works and does not stack
+	B:Open()
+	assert(B:IsOpen() == true)
+	B:Close()
+end)
+
+check("builder splash plays and cleans up", function()
+	B.SplashDuration = 0.02
+	B:Close()
+	B:Open()
+	assert(B._splashGui == nil, "splash gui should be destroyed after Open")
+	assert(B:IsOpen() == true, "builder window should open after splash")
+	B.SplashDuration = 0
+	B:Close()
+end)
+
+check("builder preview builds a real window", function()
+	B:NewProject()
+	local proj = B._project
+	B:AddTab("Second")
+	B.SplashDuration = 0
+	B:Open()
+	local prev = B:OpenPreview()
+	assert(prev ~= nil and prev._destroyed ~= true, "preview window missing")
+	assert(#prev._tabs == 2, "preview should mirror project tabs")
+	local previewElements = #prev._tabs[1]._elements
+	assert(previewElements >= 1, "preview tab should contain the project blocks")
+	B:ClosePreview()
+	assert(prev._destroyed == true, "preview not destroyed")
+	local prev2 = B:OpenPreview()
+	assert(prev2 ~= nil and prev2 ~= prev, "second preview should be a new window")
+	B:OpenPreview() -- replaces again without error
+	B:Close()
+end)
+
+check("generated script executes against the mock", function()
+	B:NewProject()
+	local proj = B._project
+	proj.window.Name = "CodeGenHub"
+	local tab = proj.tabs[1]
+	B:Select(tab, tab.nodes[2])
+	local dd = B:AddBlock("Dropdown")
+	dd.Options = "red, green, blue"
+	B:AddTab("Second")
+
+	local code = B:Generate()
+
+	local env2 = mock.buildEnv()
+	setmetatable(env2, { __index = _G })
+	env2.task = require("@lune/task")
+	env2.loadstring = function(src)
+		local chunk = luau.load(src, { debugName = "generated-loader", environment = env2 })
+		return function(...)
+			local lib = chunk(...)
+			env2.__LOADED_LIB = lib
+			return lib
+		end
+	end
+	env2.game.HttpGet = function(_, url)
+		return source -- the library source read at the top of this file
+	end
+
+	local chunk = luau.load(code, { debugName = "generated", environment = env2 })
+	local ok, err = pcall(chunk)
+	assert(ok, "generated code failed: " .. tostring(err))
+	local lib2 = env2.__LOADED_LIB
+	assert(type(lib2) == "table" and lib2.Version == "1.1.0", "loader did not return the library")
+	assert(#lib2._windows == 1, "generated script did not create a window")
+	local gen = lib2._windows[1]
+	assert(gen._config.Name == "CodeGenHub", "generated window has wrong name")
+	assert(#gen._tabs == 2, "generated window should have 2 tabs")
+	assert(#gen._tabs[1]._elements >= 1, "generated tab missing elements")
+	assert(#gen._tabs[1]._sections >= 1, "generated tab missing sections")
+	gen:Destroy()
 end)
 
 ----------------------------------------------------------------

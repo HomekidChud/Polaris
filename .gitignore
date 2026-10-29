@@ -1,2 +1,7 @@
 *.zip
 .luaurc
+build/prometheus/
+build/*.lua
+build/*.luau
+!build/cfg-final.lua
+!build/prepare_lua51.py
