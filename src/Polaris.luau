@@ -1,5 +1,5 @@
 --[[
-	Polaris UI Library v1.1.0
+	Polaris UI Library v1.2.0
 	--------------------------
 	A modern, single-file UI library for Roblox Luau, plus a visual
 	Polaris Builder: run it on its own and get an animated splash
@@ -44,7 +44,7 @@ if not LocalPlayer then
 	error("[Polaris] This library must run on the client (LocalPlayer is nil)", 0)
 end
 
-local PolarisVersion = "1.1.0"
+local PolarisVersion = "1.2.0"
 
 -- Optional executor filesystem API (only used if present)
 local FS = nil
@@ -3226,7 +3226,7 @@ function Builder:_splash(duration)
 end
 
 ----------------------------------------------------------------
--- Builder UI (built with Polaris itself)
+-- Builder UI (fullscreen Scratch-style block canvas)
 ----------------------------------------------------------------
 
 local function clipboardAvailable()
@@ -3251,8 +3251,33 @@ local function saveFile(path, content)
 	return ok
 end
 
+-- visual definitions for palette and canvas blocks
+local BLOCK_DEFS = {
+	{ Kind = "Section", Label = "Section", Color = Color3.fromRGB(120, 128, 148) },
+	{ Kind = "Button", Label = "Button", Color = Color3.fromRGB(235, 145, 55) },
+	{ Kind = "Toggle", Label = "Toggle", Color = Color3.fromRGB(76, 175, 110) },
+	{ Kind = "Slider", Label = "Slider", Color = Color3.fromRGB(150, 105, 225) },
+	{ Kind = "Dropdown", Label = "Dropdown", Color = Color3.fromRGB(38, 160, 172) },
+	{ Kind = "Keybind", Label = "Keybind", Color = Color3.fromRGB(225, 90, 90) },
+	{ Kind = "Textbox", Label = "Textbox", Color = Color3.fromRGB(215, 180, 70) },
+	{ Kind = "ColorPicker", Label = "Color", Color = Color3.fromRGB(230, 105, 170) },
+	{ Kind = "Paragraph", Label = "Paragraph", Color = Color3.fromRGB(140, 148, 170) },
+	{ Kind = "Divider", Label = "Divider", Color = Color3.fromRGB(80, 86, 102) },
+}
+
+local function blockDefFor(kind)
+	for _, def in BLOCK_DEFS do
+		if def.Kind == kind then
+			return def
+		end
+	end
+	return { Kind = kind, Label = tostring(kind), Color = Color3.fromRGB(100, 105, 125) }
+end
+
+local DRAG_THRESHOLD = 6
+
 function Builder:IsOpen()
-	return self._window ~= nil and not self._window._destroyed
+	return self._gui ~= nil and not self._gui._destroyed
 end
 
 function Builder:Close()
@@ -3263,16 +3288,30 @@ function Builder:Close()
 		end)
 		self._splashGui = nil
 	end
-	self:ClosePreview()
-	if self._window and not self._window._destroyed then
-		self._window:Destroy()
+	if self._inputConns then
+		for _, c in self._inputConns do
+			pcall(function()
+				c:Disconnect()
+			end)
+		end
+		self._inputConns = nil
 	end
-	self._window = nil
+	self._drag = nil
+	if self._ghost then
+		pcall(function()
+			self._ghost:Destroy()
+		end)
+		self._ghost = nil
+	end
+	self:ClosePreview()
+	if self._gui and not self._gui._destroyed then
+		self._gui:Destroy()
+	end
+	self._gui = nil
 end
 
 function Builder:Open()
 	if self:IsOpen() then
-		self._window:SetVisible(true)
 		return
 	end
 	if self._splashGui then
@@ -3291,628 +3330,1140 @@ function Builder:Open()
 	self:_build()
 end
 
-function Builder:_build()
-	self._structElements = {}
-	self._propElements = {}
+----------------------------------------------------------------
+-- Drag and drop (works with mouse and touch)
+----------------------------------------------------------------
 
-	local win = Polaris:CreateWindow({
-		Name = "Polaris Builder",
-		ToggleKey = Enum.KeyCode.RightControl,
-		ConfigFolder = "PolarisBuilder",
-		SaveConfig = false,
+function Builder:_beginDragGhost(input, def, labelText)
+	if self._ghost then
+		pcall(function()
+			self._ghost:Destroy()
+		end)
+	end
+	local ghost = Create("TextButton", {
+		Name = "DragGhost",
+		Position = UDim2.new(0, input.Position.X - 70, 0, input.Position.Y - 18),
+		Size = UDim2.new(0, 150, 0, 38),
+		BackgroundColor3 = def.Color,
+		BackgroundTransparency = 0.25,
+		Text = tostring(labelText),
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		AutoButtonColor = false,
+		Active = false,
+		ZIndex = 100,
+		Parent = self._gui,
 	})
-	self._window = win
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = ghost })
+	self._ghost = ghost
+end
 
-	-- if the editor window is destroyed (X button or Destroy), clean the preview up
-	local origDestroy = win.Destroy
-	win.Destroy = function(w)
-		if self._window == win then
-			self:ClosePreview()
-			self._window = nil
+function Builder:_onDragInput(input)
+	local drag = self._drag
+	if not drag then
+		return
+	end
+	if input.UserInputType ~= drag.inputType and input.UserInputType ~= Enum.UserInputType.MouseMovement then
+		return
+	end
+	local dx = input.Position.X - drag.startX
+	local dy = input.Position.Y - drag.startY
+	if not drag.dragging then
+		if math.abs(dx) < DRAG_THRESHOLD and math.abs(dy) < DRAG_THRESHOLD then
+			return
 		end
-		return origDestroy(w)
-	end
-
-	----------------------------------------------------------------
-	-- Build tab
-	----------------------------------------------------------------
-	local buildTab = win:CreateTab({ Name = "Build" })
-
-	buildTab:CreateSection({ Name = "Window" })
-	self._elWinName = buildTab:CreateTextbox({
-		Name = "Hub name",
-		Default = self._project.window.Name,
-		TextDisappear = false,
-		Callback = function(text)
-			self._project.window.Name = tostring(text)
-			self:_refreshStructure()
-			self:_refreshExport()
-		end,
-	})
-	self._elWinTheme = buildTab:CreateDropdown({
-		Name = "Theme",
-		Options = Polaris:GetThemeNames(),
-		Default = self._project.window.Theme,
-		Callback = function(selected)
-			self._project.window.Theme = tostring(selected)
-		end,
-	})
-	self._elWinFolder = buildTab:CreateTextbox({
-		Name = "Config folder",
-		Default = self._project.window.ConfigFolder,
-		TextDisappear = false,
-		Callback = function(text)
-			self._project.window.ConfigFolder = tostring(text)
-		end,
-	})
-	self._elWinSave = buildTab:CreateToggle({
-		Name = "Save config",
-		Default = self._project.window.SaveConfig,
-		Callback = function(value)
-			self._project.window.SaveConfig = value == true
-		end,
-	})
-	buildTab:CreateButton({
-		Name = "New project (reset)",
-		Callback = function()
-			self:NewProject()
-			self:_syncWindowSettings()
-			self:_refreshAll()
-			Polaris:Notify({ Title = "Polaris Builder", Content = "Started a new project", Duration = 3 })
-		end,
-	})
-
-	buildTab:CreateSection({ Name = "Add blocks" })
-	local addDefs = {
-		{ label = "+ Tab", kind = "Tab" },
-		{ label = "+ Section", kind = "Section" },
-		{ label = "+ Button", kind = "Button" },
-		{ label = "+ Toggle", kind = "Toggle" },
-		{ label = "+ Slider", kind = "Slider" },
-		{ label = "+ Dropdown", kind = "Dropdown" },
-		{ label = "+ Keybind", kind = "Keybind" },
-		{ label = "+ Textbox", kind = "Textbox" },
-		{ label = "+ Color", kind = "ColorPicker" },
-		{ label = "+ Paragraph", kind = "Paragraph" },
-		{ label = "+ Divider", kind = "Divider" },
-	}
-	for _, def in addDefs do
-		buildTab:CreateButton({
-			Name = def.label,
-			Callback = function()
-				if def.kind == "Tab" then
-					self:AddTab("Tab" .. tostring(#self._project.tabs + 1))
-				else
-					self:AddBlock(def.kind)
-				end
-				self:_refreshAll()
-			end,
-		})
-	end
-
-	buildTab:CreateSection({ Name = "Structure" })
-	self._structTab = buildTab
-
-	----------------------------------------------------------------
-	-- Properties tab
-	----------------------------------------------------------------
-	local propTab = win:CreateTab({ Name = "Properties" })
-	self._propTab = propTab
-	propTab:CreateSection({ Name = "Selected block" })
-	self._propElements = {}
-
-	----------------------------------------------------------------
-	-- Preview tab
-	----------------------------------------------------------------
-	local prevTab = win:CreateTab({ Name = "Preview" })
-	prevTab:CreateSection({ Name = "Live preview" })
-	prevTab:CreateButton({
-		Name = "Open preview",
-		Callback = function()
-			self:OpenPreview()
-			Polaris:Notify({ Title = "Polaris Builder", Content = "Preview opened - close it from the Preview tab", Duration = 4 })
-		end,
-	})
-	prevTab:CreateButton({
-		Name = "Close preview",
-		Callback = function()
-			self:ClosePreview()
-		end,
-	})
-	prevTab:CreateParagraph({
-		Text = "The preview is a real Polaris window built from your blocks. Its config saving is disabled so it never touches your saved configs.",
-	})
-
-	----------------------------------------------------------------
-	-- Export tab
-	----------------------------------------------------------------
-	local expTab = win:CreateTab({ Name = "Export" })
-	expTab:CreateSection({ Name = "Generated script" })
-	expTab:CreateButton({
-		Name = "Regenerate code",
-		Callback = function()
-			self:_refreshExport()
-			Polaris:Notify({ Title = "Polaris Builder", Content = "Code regenerated", Duration = 3 })
-		end,
-	})
-	expTab:CreateButton({
-		Name = "Copy code to clipboard",
-		Callback = function()
-			local code = self:Generate()
-			if clipboardAvailable() and copyText(code) then
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Code copied to clipboard", Type = "success", Duration = 3 })
-			else
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Clipboard not available - copy the code from below", Type = "warning", Duration = 5 })
-			end
-		end,
-	})
-	expTab:CreateButton({
-		Name = "Save .luau file",
-		Callback = function()
-			local code = self:Generate()
-			local name = slugify(self._project.window.Name)
-			local path = "PolarisBuilder/" .. name .. ".luau"
-			if saveFile(path, code) then
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Saved to " .. path, Type = "success", Duration = 4 })
-			else
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Saving files is not available here (executor only)", Type = "warning", Duration = 4 })
-			end
-		end,
-	})
-	self._elCode = expTab:CreateParagraph({ Text = "" })
-
-	expTab:CreateSection({ Name = "Project JSON" })
-	expTab:CreateButton({
-		Name = "Copy project JSON",
-		Callback = function()
-			local json = self:ExportJSON()
-			if clipboardAvailable() and copyText(json) then
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Project JSON copied to clipboard", Type = "success", Duration = 3 })
-			else
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Clipboard not available - use the textbox below", Type = "warning", Duration = 5 })
-			end
-		end,
-	})
-	expTab:CreateSection({ Name = "Project JSON output" })
-	self._elJsonOut = expTab:CreateParagraph({ Text = "" })
-	expTab:CreateSection({ Name = "Import project JSON" })
-	self._elImport = expTab:CreateTextbox({
-		Name = "Paste project JSON here",
-		Default = "",
-		TextDisappear = false,
-		Callback = function(text)
-			local ok, err = pcall(function()
-				self:ImportJSON(tostring(text))
+		drag.dragging = true
+		local def = blockDefFor(drag.defKind)
+		self:_beginDragGhost(input, def, drag.label)
+		if self._canvas then
+			pcall(function()
+				self._canvas.ScrollingEnabled = false
 			end)
-			if ok then
-				self:_syncWindowSettings()
-				self:_refreshAll()
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Project imported", Type = "success", Duration = 3 })
-			else
-				Polaris:Notify({ Title = "Polaris Builder", Content = "Import failed: " .. tostring(err), Type = "error", Duration = 6 })
+		end
+		if drag.frame then
+			pcall(function()
+				drag.frame.BackgroundTransparency = 0.6
+			end)
+		end
+	end
+	if self._ghost then
+		self._ghost.Position = UDim2.new(0, input.Position.X - 70, 0, input.Position.Y - 18)
+	end
+end
+
+function Builder:_pointIn(inst, x, y)
+	local ok, inside = pcall(function()
+		local pos = inst.AbsolutePosition
+		local size = inst.AbsoluteSize
+		return x >= pos.X and x <= pos.X + size.X and y >= pos.Y and y <= pos.Y + size.Y
+	end)
+	return ok and inside == true
+end
+
+function Builder:_moveNode(node, toTab, index)
+	local proj = self:_currentProject()
+	local fromTab = nil
+	local removedAt = nil
+	for _, tab in proj.tabs do
+		local i = indexOf(tab.nodes, node)
+		if i then
+			fromTab = tab
+			removedAt = i
+			table.remove(tab.nodes, i)
+			break
+		end
+	end
+	if not fromTab then
+		return false
+	end
+	if toTab then
+		local idx = index
+		if fromTab == toTab and removedAt and removedAt < idx then
+			idx = idx - 1
+		end
+		if idx < 1 then
+			idx = 1
+		end
+		if idx > #toTab.nodes + 1 then
+			idx = #toTab.nodes + 1
+		end
+		table.insert(toTab.nodes, idx, node)
+		self._selected = { tab = toTab, node = node }
+	end
+	return true
+end
+
+function Builder:_onDragEnd(input)
+	local drag = self._drag
+	self._drag = nil
+	if not drag then
+		return
+	end
+	if self._ghost then
+		pcall(function()
+			self._ghost:Destroy()
+		end)
+		self._ghost = nil
+	end
+	if self._canvas then
+		pcall(function()
+			self._canvas.ScrollingEnabled = true
+		end)
+	end
+	if drag.frame then
+		pcall(function()
+			drag.frame.BackgroundTransparency = 0
+		end)
+	end
+	if not drag.dragging then
+		-- a simple tap
+		if drag.onTap then
+			drag.onTap()
+		else
+			self._selected = drag.selection
+			self:_refreshCanvas()
+			self:_refreshProperties()
+		end
+		return
+	end
+	-- dropped somewhere: work out the target column
+	local x = input.Position.X
+	local y = input.Position.Y
+	-- dropping a block back onto the palette deletes it (Scratch-style)
+	if self._palette and self:_pointIn(self._palette, x, y) then
+		if drag.data and drag.data.node then
+			self:Select(drag.data.tab, drag.data.node)
+			self:DeleteSelected()
+		end
+		self:_refreshAll()
+		return
+	end
+	local targetTab = nil
+	local targetIndex = nil
+	for _, col in self._columns do
+		if self:_pointIn(col.frame, x, y) then
+			targetTab = col.tab
+			targetIndex = #targetTab.nodes + 1
+			for i, bf in col.blockFrames do
+				local ok, cy = pcall(function()
+					local pos = bf.AbsolutePosition
+					local size = bf.AbsoluteSize
+					return pos.Y + size.Y * 0.5
+				end)
+				if ok and y < cy then
+					targetIndex = i
+					break
+				end
 			end
-		end,
+			break
+		end
+	end
+	if targetTab == nil then
+		-- dropped in empty space: keep the current selection
+		if drag.selection then
+			self._selected = drag.selection
+		end
+		self:_refreshAll()
+		return
+	end
+	if drag.data and drag.data.node then
+		self:_moveNode(drag.data.node, targetTab, targetIndex)
+	elseif drag.paletteKind then
+		local node = newBlock(drag.paletteKind, function(base)
+			return self:_autoFlag(base)
+		end)
+		if node then
+			table.insert(targetTab.nodes, targetIndex, node)
+			self._selected = { tab = targetTab, node = node }
+		end
+	end
+	self:_refreshAll()
+end
+
+----------------------------------------------------------------
+-- Fullscreen editor
+----------------------------------------------------------------
+
+function Builder:_build()
+	self._columns = {}
+	self._inputConns = {}
+	self._drag = nil
+	self._ghost = nil
+	self._propRows = {}
+
+	local gui = Create("ScreenGui", { Name = "PolarisBuilder", IgnoreGuiInset = true })
+	local parent = getGuiParent()
+	if parent then
+		gui.Parent = parent
+	end
+	self._gui = gui
+
+	local root = Create("Frame", {
+		Name = "Root",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Color3.fromRGB(15, 17, 24),
+		BorderSizePixel = 0,
+		Parent = gui,
 	})
+
+	------------------------------------------------------------
+	-- Top bar
+	------------------------------------------------------------
+	local topBar = Create("Frame", {
+		Name = "TopBar",
+		Size = UDim2.new(1, 0, 0, 52),
+		BackgroundColor3 = Color3.fromRGB(21, 24, 34),
+		BorderSizePixel = 0,
+		Parent = root,
+	})
+	Create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 6),
+		Parent = topBar,
+	})
+	Create("UIPadding", {
+		PaddingRight = UDim.new(0, 10),
+		Parent = topBar,
+	})
+
+	Create("TextLabel", {
+		Name = "Logo",
+		Position = UDim2.new(0, 12, 0, 0),
+		Size = UDim2.new(0, 170, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "POLARIS BUILDER",
+		TextColor3 = Color3.fromRGB(120, 130, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = topBar,
+	})
+
+	self._hubNameBox = Create("TextBox", {
+		Name = "HubName",
+		Position = UDim2.new(0, 190, 0, 9),
+		Size = UDim2.new(0, 180, 0, 34),
+		BackgroundColor3 = Color3.fromRGB(30, 34, 48),
+		Text = tostring(self._project.window.Name),
+		TextColor3 = Color3.fromRGB(235, 238, 255),
+		PlaceholderText = "Hub name",
+		Font = Enum.Font.Gotham,
+		TextSize = 14,
+		ClearTextOnFocus = false,
+		Parent = topBar,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = self._hubNameBox })
+	self._hubNameBox:GetPropertyChangedSignal("Text"):Connect(function()
+		self._project.window.Name = tostring(self._hubNameBox.Text)
+		self:_refreshExport()
+	end)
+
+	local function topButton(text, width, color)
+		local b = Create("TextButton", {
+			Size = UDim2.new(0, width, 0, 34),
+			BackgroundColor3 = color or Color3.fromRGB(38, 43, 62),
+			Text = text,
+			TextColor3 = Color3.fromRGB(235, 238, 255),
+			Font = Enum.Font.GothamBold,
+			TextSize = 13,
+			AutoButtonColor = true,
+			Parent = topBar,
+		})
+		Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = b })
+		return b
+	end
+
+	local addTabBtn = topButton("+ Tab", 80, Color3.fromRGB(66, 133, 244))
+	addTabBtn.Activated:Connect(function()
+		self:AddTab("Tab" .. tostring(#self._project.tabs + 1))
+		self:_refreshAll()
+	end)
+	local previewBtn = topButton("Preview", 92, Color3.fromRGB(76, 175, 110))
+	previewBtn.Activated:Connect(function()
+		self:OpenPreview()
+	end)
+	local exportBtn = topButton("Export", 92, Color3.fromRGB(120, 130, 255))
+	exportBtn.Activated:Connect(function()
+		self:_openExportPanel()
+	end)
+	local newBtn = topButton("New", 64)
+	newBtn.Activated:Connect(function()
+		self:NewProject()
+		self:_refreshAll()
+		Polaris:Notify({ Title = "Polaris Builder", Content = "Started a new project", Duration = 3 })
+	end)
+	local closeBtn = topButton("X", 34, Color3.fromRGB(225, 90, 90))
+	closeBtn.Activated:Connect(function()
+		self:Close()
+	end)
+
+	------------------------------------------------------------
+	-- Palette (left)
+	------------------------------------------------------------
+	local palette = Create("ScrollingFrame", {
+		Name = "Palette",
+		Position = UDim2.new(0, 0, 0, 58),
+		Size = UDim2.new(0, 150, 1, -58),
+		BackgroundColor3 = Color3.fromRGB(20, 23, 32),
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		ScrollBarThickness = 3,
+		Parent = root,
+	})
+	self._palette = palette
+	Create("UIListLayout", { Padding = UDim.new(0, 6), Parent = palette })
+	Create("UIPadding", {
+		PaddingTop = UDim.new(0, 8),
+		PaddingLeft = UDim.new(0, 8),
+		PaddingRight = UDim.new(0, 8),
+		Parent = palette,
+	})
+
+	Create("TextLabel", {
+		Size = UDim2.new(1, -8, 0, 20),
+		BackgroundTransparency = 1,
+		Text = "BLOCKS",
+		TextColor3 = Color3.fromRGB(140, 148, 180),
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		Parent = palette,
+	})
+
+	self._paletteButtons = {}
+	for _, def in BLOCK_DEFS do
+		local chip = Create("TextButton", {
+			Size = UDim2.new(1, -8, 0, 38),
+			BackgroundColor3 = def.Color,
+			Text = def.Label,
+			TextColor3 = Color3.fromRGB(255, 255, 255),
+			Font = Enum.Font.GothamBold,
+			TextSize = 13,
+			AutoButtonColor = true,
+			Parent = palette,
+		})
+		Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = chip })
+		table.insert(self._paletteButtons, chip)
+		chip.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+				return
+			end
+			self._drag = {
+				inputType = input.UserInputType,
+				startX = input.Position.X,
+				startY = input.Position.Y,
+				paletteKind = def.Kind,
+				defKind = def.Kind,
+				label = def.Label,
+				onTap = function()
+					-- tap: add to the selected tab (or the last one)
+					local tab = self:_selectedTab()
+					if not tab then
+						tab = self:AddTab("Main")
+					end
+					local node = newBlock(def.Kind, function(base)
+						return self:_autoFlag(base)
+					end)
+					if node then
+						table.insert(tab.nodes, node)
+						self._selected = { tab = tab, node = node }
+					end
+					self:_refreshAll()
+				end,
+			}
+		end)
+	end
+
+	------------------------------------------------------------
+	-- Canvas (center) - one column per tab, blocks stacked inside
+	------------------------------------------------------------
+	self._canvas = Create("ScrollingFrame", {
+		Name = "Canvas",
+		Position = UDim2.new(0, 158, 0, 58),
+		Size = UDim2.new(1, -158 - 240, 1, -58),
+		BackgroundColor3 = Color3.fromRGB(13, 15, 22),
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		ScrollBarThickness = 4,
+		Parent = root,
+	})
+	Create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 10),
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		Parent = self._canvas,
+	})
+
+	------------------------------------------------------------
+	-- Properties (right)
+	------------------------------------------------------------
+	local props = Create("ScrollingFrame", {
+		Name = "Properties",
+		Position = UDim2.new(1, -236, 0, 58),
+		Size = UDim2.new(0, 236, 1, -58),
+		BackgroundColor3 = Color3.fromRGB(20, 23, 32),
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		ScrollBarThickness = 3,
+		Parent = root,
+	})
+	self._propList = props
+	Create("UIListLayout", { Padding = UDim.new(0, 6), Parent = props })
+	Create("UIPadding", {
+		PaddingTop = UDim.new(0, 8),
+		PaddingLeft = UDim.new(0, 8),
+		PaddingRight = UDim.new(0, 8),
+		Parent = props,
+	})
+
+	------------------------------------------------------------
+	-- Global drag input tracking (mouse + touch)
+	------------------------------------------------------------
+	table.insert(self._inputConns, UserInputService.InputChanged:Connect(function(input)
+		self:_onDragInput(input)
+	end))
+	table.insert(self._inputConns, UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			self:_onDragEnd(input)
+		end
+	end))
 
 	self:_refreshAll()
 end
 
-function Builder:_syncWindowSettings()
-	local proj = self:_currentProject()
-	if self._elWinName and not self._elWinName._destroyed then
-		self._elWinName:Set(tostring(proj.window.Name), true)
-	end
-	if self._elWinTheme and not self._elWinTheme._destroyed then
-		self._elWinTheme:Set(tostring(proj.window.Theme), true)
-	end
-	if self._elWinFolder and not self._elWinFolder._destroyed then
-		self._elWinFolder:Set(tostring(proj.window.ConfigFolder), true)
-	end
-	if self._elWinSave and not self._elWinSave._destroyed then
-		self._elWinSave:Set(proj.window.SaveConfig == true, true)
-	end
-end
+----------------------------------------------------------------
+-- Canvas rendering
+----------------------------------------------------------------
 
-function Builder:_refreshAll()
-	self:_refreshStructure()
-	self:_refreshProperties()
-	self:_refreshExport()
-end
-
-function Builder:_refreshExport()
-	if self._elCode and not self._elCode._destroyed then
-		self._elCode:SetText(self:Generate())
+function Builder:_refreshCanvas()
+	if not self._canvas or self._canvas._destroyed then
+		return
 	end
-	if self._elJsonOut and not self._elJsonOut._destroyed then
-		self._elJsonOut:SetText(self:ExportJSON())
-	end
-end
-
-function Builder:_addStructButton(label, tab, node)
-	local el = self._structTab:CreateButton({
-		Name = label,
-		Callback = function()
-			self:Select(tab, node)
-			self:_refreshStructure()
-			self:_refreshProperties()
-		end,
-	})
-	table.insert(self._structElements, el)
-end
-
-function Builder:_refreshStructure()
-	for _, el in self._structElements do
-		if not el._destroyed then
-			el:Destroy()
+	for _, col in self._columns do
+		if not col.frame._destroyed then
+			col.frame:Destroy()
 		end
 	end
-	self._structElements = {}
+	self._columns = {}
 
 	local proj = self:_currentProject()
 	local sel = self._selected
+	local totalHeight = 100
 
-	self:_addStructButton("Window: " .. tostring(proj.window.Name), nil, nil)
 	for _, tab in proj.tabs do
-		local isSel = sel and sel.tab == tab and sel.node == nil
-		local marker = isSel and "> " or ""
-		self:_addStructButton(marker .. "Tab: " .. tostring(tab.Name), tab, nil)
+		local isSelTab = sel and sel.tab == tab and sel.node == nil
+		local col = Create("Frame", {
+			Name = "Column",
+			Size = UDim2.new(0, 190, 0, 40 + #tab.nodes * 48 + 10),
+			BackgroundColor3 = Color3.fromRGB(24, 27, 39),
+			BorderSizePixel = 0,
+			Parent = self._canvas,
+		})
+		Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = col })
+		Create("UIStroke", {
+			Color = isSelTab and Color3.fromRGB(120, 130, 255) or Color3.fromRGB(38, 43, 60),
+			Thickness = isSelTab and 2 or 1,
+			Parent = col,
+		})
+		local header = Create("TextButton", {
+			Name = "Header",
+			Position = UDim2.new(0, 8, 0, 6),
+			Size = UDim2.new(1, -16, 0, 26),
+			BackgroundTransparency = 1,
+			Text = tostring(tab.Name),
+			TextColor3 = Color3.fromRGB(200, 206, 230),
+			Font = Enum.Font.GothamBold,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = col,
+		})
+		local colEntry = { frame = col, tab = tab, blockFrames = {} }
+		header.Activated:Connect(function()
+			self._selected = { tab = tab, node = nil }
+			self:_refreshCanvas()
+			self:_refreshProperties()
+		end)
+		local y = 38
 		for _, node in tab.nodes do
-			local isSelNode = sel and sel.node == node
-			local nodeMarker = isSelNode and "> " or "    "
-			local nodeLabel = tostring(node.Kind) .. ": " .. tostring(node.Name or node.Text or "")
-			self:_addStructButton(nodeMarker .. nodeLabel, tab, node)
+			local def = blockDefFor(node.Kind)
+			local isSel = sel and sel.node == node
+			local bf = Create("TextButton", {
+				Name = "Block",
+				Position = UDim2.new(0, 8, 0, y),
+				Size = UDim2.new(1, -16, 0, 42),
+				BackgroundColor3 = def.Color,
+				BackgroundTransparency = 0.15,
+				Text = "",
+				AutoButtonColor = false,
+				Parent = col,
+			})
+			if isSel then
+				bf.BackgroundTransparency = 0
+			end
+			Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = bf })
+			Create("UIStroke", {
+				Color = isSel and Color3.fromRGB(255, 255, 255) or def.Color,
+				Thickness = isSel and 2 or 0,
+				Parent = bf,
+			})
+			Create("TextLabel", {
+				Name = "Kind",
+				Position = UDim2.new(0, 10, 0, 4),
+				Size = UDim2.new(1, -20, 0, 12),
+				BackgroundTransparency = 1,
+				Text = def.Label,
+				TextColor3 = Color3.fromRGB(255, 255, 255),
+				TextTransparency = 0.35,
+				Font = Enum.Font.GothamBold,
+				TextSize = 10,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = bf,
+			})
+			Create("TextLabel", {
+				Name = "Name",
+				Position = UDim2.new(0, 10, 0, 17),
+				Size = UDim2.new(1, -20, 0, 18),
+				BackgroundTransparency = 1,
+				Text = tostring(node.Name or node.Text or ""),
+				TextColor3 = Color3.fromRGB(255, 255, 255),
+				Font = Enum.Font.GothamBold,
+				TextSize = 13,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				Parent = bf,
+			})
+			bf.InputBegan:Connect(function(input)
+				if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+					return
+				end
+				self._drag = {
+					inputType = input.UserInputType,
+					startX = input.Position.X,
+					startY = input.Position.Y,
+					frame = bf,
+					defKind = node.Kind,
+					label = def.Label,
+					data = { tab = tab, node = node },
+					selection = { tab = tab, node = node },
+				}
+			end)
+			table.insert(colEntry.blockFrames, bf)
+			y = y + 48
 		end
+		local colH = 40 + #tab.nodes * 48 + 20
+		if colH > totalHeight then
+			totalHeight = colH
+		end
+		table.insert(self._columns, colEntry)
 	end
+
+	-- trailing "+ Tab" button
+	local addCol = Create("TextButton", {
+		Name = "AddTab",
+		Size = UDim2.new(0, 190, 0, 42),
+		BackgroundTransparency = 1,
+		Text = "+ Tab",
+		TextColor3 = Color3.fromRGB(140, 148, 180),
+		Font = Enum.Font.GothamBold,
+		TextSize = 14,
+		Parent = self._canvas,
+	})
+	addCol.Activated:Connect(function()
+		self:AddTab("Tab" .. tostring(#self._project.tabs + 1))
+		self:_refreshAll()
+	end)
+
+	self._canvas.CanvasSize = UDim2.new(0, 10 + (#proj.tabs + 1) * 200, 0, totalHeight)
 end
 
-local function addPropElement(builder, el)
-	table.insert(builder._propElements, el)
-	return el
+----------------------------------------------------------------
+-- Properties panel
+----------------------------------------------------------------
+
+local function propRow(b, height)
+	local row = Create("Frame", {
+		Size = UDim2.new(1, -6, 0, height or 34),
+		BackgroundColor3 = Color3.fromRGB(28, 32, 46),
+		BorderSizePixel = 0,
+		Parent = b._propList,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = row })
+	table.insert(b._propRows, row)
+	return row
+end
+
+local function propHeader(b, text)
+	local row = propRow(b, 26)
+	Create("TextLabel", {
+		Position = UDim2.new(0, 8, 0, 0),
+		Size = UDim2.new(1, -16, 1, 0),
+		BackgroundTransparency = 1,
+		Text = text,
+		TextColor3 = Color3.fromRGB(120, 130, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = row,
+	})
+end
+
+local function propLabel(row, text)
+	Create("TextLabel", {
+		Position = UDim2.new(0, 8, 0, 0),
+		Size = UDim2.new(0, 82, 1, 0),
+		BackgroundTransparency = 1,
+		Text = text,
+		TextColor3 = Color3.fromRGB(170, 176, 200),
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = row,
+	})
+end
+
+local function propTextbox(b, label, value, onChange)
+	local row = propRow(b, 34)
+	propLabel(row, label)
+	local tb = Create("TextBox", {
+		Position = UDim2.new(1, -102, 0, 5),
+		Size = UDim2.new(0, 96, 0, 24),
+		BackgroundColor3 = Color3.fromRGB(18, 20, 30),
+		Text = tostring(value),
+		TextColor3 = Color3.fromRGB(235, 238, 255),
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		ClearTextOnFocus = false,
+		Parent = row,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = tb })
+	tb.FocusLost:Connect(function()
+		onChange(tostring(tb.Text))
+	end)
+	return tb
+end
+
+local function propToggle(b, label, value, onChange)
+	local row = propRow(b, 34)
+	propLabel(row, label)
+	local btn = Create("TextButton", {
+		Position = UDim2.new(1, -102, 0, 5),
+		Size = UDim2.new(0, 96, 0, 24),
+		BackgroundColor3 = value and Color3.fromRGB(76, 175, 110) or Color3.fromRGB(58, 64, 86),
+		Text = value and "ON" or "OFF",
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		AutoButtonColor = true,
+		Parent = row,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = btn })
+	local state = value == true
+	btn.Activated:Connect(function()
+		state = not state
+		btn.BackgroundColor3 = state and Color3.fromRGB(76, 175, 110) or Color3.fromRGB(58, 64, 86)
+		btn.Text = state and "ON" or "OFF"
+		onChange(state)
+	end)
+	return btn
+end
+
+local function propCycle(b, label, options, currentIndex, onChange)
+	local row = propRow(b, 34)
+	propLabel(row, label)
+	local idx = currentIndex or 1
+	if idx < 1 then
+		idx = 1
+	end
+	if idx > #options then
+		idx = #options
+	end
+	local btn = Create("TextButton", {
+		Position = UDim2.new(1, -102, 0, 5),
+		Size = UDim2.new(0, 96, 0, 24),
+		BackgroundColor3 = Color3.fromRGB(38, 43, 62),
+		Text = tostring(options[idx]),
+		TextColor3 = Color3.fromRGB(235, 238, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		AutoButtonColor = true,
+		Parent = row,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = btn })
+	btn.Activated:Connect(function()
+		idx = idx % #options + 1
+		btn.Text = tostring(options[idx])
+		onChange(options[idx])
+	end)
+	return btn
+end
+
+local function propButton(b, label, color, onClick)
+	local row = propRow(b, 34)
+	local btn = Create("TextButton", {
+		Position = UDim2.new(0, 6, 0, 4),
+		Size = UDim2.new(1, -12, 0, 26),
+		BackgroundColor3 = color or Color3.fromRGB(38, 43, 62),
+		Text = label,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		AutoButtonColor = true,
+		Parent = row,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = btn })
+	btn.Activated:Connect(onClick)
+	return btn
 end
 
 function Builder:_refreshProperties()
-	for _, el in self._propElements do
-		if not el._destroyed then
-			el:Destroy()
+	if not self._propList or self._propList._destroyed then
+		return
+	end
+	for _, row in self._propRows do
+		if not row._destroyed then
+			row:Destroy()
 		end
 	end
-	self._propElements = {}
+	self._propRows = {}
 
 	local proj = self:_currentProject()
 	local sel = self._selected
-	local tab = self._propTab
+	local b = self
+
+	local function nameBox(node)
+		propTextbox(b, "Name", node.Name, function(text)
+			node.Name = tostring(text)
+			b:_refreshCanvas()
+			b:_refreshExport()
+		end)
+	end
+	local function flagBox(node)
+		propTextbox(b, "Flag", node.Flag or "", function(text)
+			node.Flag = tostring(text)
+			b:_refreshExport()
+		end)
+	end
+	local function numberBox(label, node, key)
+		propTextbox(b, label, tostring(node[key] or 0), function(text)
+			local n = tonumber(tostring(text))
+			if n then
+				node[key] = n
+				b:_refreshExport()
+			end
+		end)
+	end
 
 	if not sel or not sel.tab or not indexOf(proj.tabs, sel.tab) then
-		addPropElement(self, tab:CreateParagraph({
-			Text = "Select a block in the Build tab's Structure list to edit it here. Blocks you add appear after the selected one.",
-		}))
+		-- window properties
+		propHeader(b, "Window")
+		propTextbox(b, "Hub name", proj.window.Name, function(text)
+			proj.window.Name = tostring(text)
+			if b._hubNameBox and not b._hubNameBox._destroyed then
+				b._hubNameBox.Text = tostring(text)
+			end
+			b:_refreshExport()
+		end)
+		local themeNames = Polaris:GetThemeNames()
+		local themeIdx = 1
+		for i, name in themeNames do
+			if name == proj.window.Theme then
+				themeIdx = i
+			end
+		end
+		propCycle(b, "Theme", themeNames, themeIdx, function(name)
+			proj.window.Theme = tostring(name)
+			b:_refreshExport()
+		end)
+		propTextbox(b, "Folder", proj.window.ConfigFolder, function(text)
+			proj.window.ConfigFolder = tostring(text)
+			b:_refreshExport()
+		end)
+		propToggle(b, "Save config", proj.window.SaveConfig, function(v)
+			proj.window.SaveConfig = v
+			b:_refreshExport()
+		end)
+		propHeader(b, "Tip")
+		propTextbox(b, "Hint", "Tap a block on the left to add it, then drag blocks to arrange. Drag a block onto the palette to delete it.", function() end)
 		return
 	end
 
 	local node = sel.node
 	if node == nil then
-		-- tab properties
-		addPropElement(self, tab:CreateParagraph({ Text = "Editing: Tab" }))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Tab name",
-			Default = sel.tab.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				sel.tab.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Tab icon (rbxassetid://... optional)",
-			Default = sel.tab.Icon or "",
-			TextDisappear = false,
-			Callback = function(text)
-				sel.tab.Icon = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateButton({
-			Name = "Duplicate tab",
-			Callback = function()
-				if self:DuplicateSelectedTab() then
-					self:_refreshAll()
-				end
-			end,
-		}))
-		addPropElement(self, tab:CreateButton({
-			Name = "Delete tab",
-			Callback = function()
-				if self:DeleteSelected() then
-					self:_refreshAll()
-				end
-			end,
-		}))
+		propHeader(b, "Tab")
+		propTextbox(b, "Name", sel.tab.Name, function(text)
+			sel.tab.Name = tostring(text)
+			b:_refreshCanvas()
+			b:_refreshExport()
+		end)
+		propTextbox(b, "Icon", sel.tab.Icon or "", function(text)
+			sel.tab.Icon = tostring(text)
+			b:_refreshExport()
+		end)
+		propButton(b, "Duplicate tab", Color3.fromRGB(66, 133, 244), function()
+			if b:DuplicateSelectedTab() then
+				b:_refreshAll()
+			end
+		end)
+		propButton(b, "Delete tab", Color3.fromRGB(225, 90, 90), function()
+			if b:DeleteSelected() then
+				b:_refreshAll()
+			end
+		end)
 		return
 	end
 
 	local kind = node.Kind
-	addPropElement(self, tab:CreateParagraph({ Text = "Editing: " .. tostring(kind) }))
+	propHeader(b, kind)
 
 	if kind == "Section" or kind == "Button" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
 	elseif kind == "Toggle" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateToggle({
-			Name = "Default value",
-			Default = node.Default == true,
-			Callback = function(value)
-				node.Default = value == true
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Flag (config save key)",
-			Default = node.Flag,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Flag = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
+		propToggle(b, "Default", node.Default == true, function(v)
+			node.Default = v
+			b:_refreshExport()
+		end)
+		flagBox(node)
 	elseif kind == "Slider" then
-		local function numField(label, key)
-			addPropElement(self, tab:CreateTextbox({
-				Name = label,
-				Default = tostring(node[key] or 0),
-				TextDisappear = false,
-				Callback = function(text)
-					local n = tonumber(tostring(text))
-					if n then
-						node[key] = n
-						self:_refreshExport()
-					end
-				end,
-			}))
-		end
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		numField("Minimum", "Min")
-		numField("Maximum", "Max")
-		numField("Default", "Default")
-		numField("Step size", "Increment")
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Value suffix (e.g. studs/s)",
-			Default = node.ValueName or "",
-			TextDisappear = false,
-			Callback = function(text)
-				node.ValueName = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Flag (config save key)",
-			Default = node.Flag,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Flag = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
+		numberBox("Min", node, "Min")
+		numberBox("Max", node, "Max")
+		numberBox("Default", node, "Default")
+		numberBox("Step", node, "Increment")
+		propTextbox(b, "Suffix", node.ValueName or "", function(text)
+			node.ValueName = tostring(text)
+			b:_refreshExport()
+		end)
+		flagBox(node)
 	elseif kind == "Dropdown" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Options (comma separated)",
-			Default = node.Options,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Options = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateToggle({
-			Name = "Multi-select",
-			Default = node.Multiple == true,
-			Callback = function(value)
-				node.Multiple = value == true
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Flag (config save key)",
-			Default = node.Flag,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Flag = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
+		propTextbox(b, "Options", node.Options, function(text)
+			node.Options = tostring(text)
+			b:_refreshExport()
+		end)
+		propToggle(b, "Multi", node.Multiple == true, function(v)
+			node.Multiple = v
+			b:_refreshExport()
+		end)
+		flagBox(node)
 	elseif kind == "ColorPicker" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		local function channel(label, key)
-			addPropElement(self, tab:CreateSlider({
-				Name = label,
-				Min = 0,
-				Max = 255,
-				Default = tonumber(node[key]) or 0,
-				Increment = 1,
-				Callback = function(value)
-					node[key] = math.floor(value + 0.5)
-					self:_refreshExport()
-				end,
-			}))
-		end
-		channel("Red", "R")
-		channel("Green", "G")
-		channel("Blue", "B")
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Flag (config save key)",
-			Default = node.Flag,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Flag = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
+		numberBox("Red", node, "R")
+		numberBox("Green", node, "G")
+		numberBox("Blue", node, "B")
+		flagBox(node)
 	elseif kind == "Keybind" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateDropdown({
-			Name = "Key",
-			Options = KEY_OPTIONS,
-			Default = tostring(node.Key or "RightControl"),
-			Callback = function(selected)
-				node.Key = tostring(selected)
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateToggle({
-			Name = "Hold mode",
-			Default = node.Hold == true,
-			Callback = function(value)
-				node.Hold = value == true
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Flag (config save key)",
-			Default = node.Flag,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Flag = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
+		local keyIdx = 1
+		for i, k in KEY_OPTIONS do
+			if k == tostring(node.Key) then
+				keyIdx = i
+			end
+		end
+		propCycle(b, "Key", KEY_OPTIONS, keyIdx, function(k)
+			node.Key = tostring(k)
+			b:_refreshExport()
+		end)
+		propToggle(b, "Hold", node.Hold == true, function(v)
+			node.Hold = v
+			b:_refreshExport()
+		end)
+		flagBox(node)
 	elseif kind == "Textbox" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Name",
-			Default = node.Name,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Name = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Default text",
-			Default = node.Default,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Default = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateToggle({
-			Name = "Placeholder mode (text disappears)",
-			Default = node.TextDisappear == true,
-			Callback = function(value)
-				node.TextDisappear = value == true
-				self:_refreshExport()
-			end,
-		}))
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Flag (config save key)",
-			Default = node.Flag,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Flag = tostring(text)
-				self:_refreshExport()
-			end,
-		}))
+		nameBox(node)
+		propTextbox(b, "Default", node.Default, function(text)
+			node.Default = tostring(text)
+			b:_refreshExport()
+		end)
+		propToggle(b, "Ghost text", node.TextDisappear == true, function(v)
+			node.TextDisappear = v
+			b:_refreshExport()
+		end)
+		flagBox(node)
 	elseif kind == "Paragraph" then
-		addPropElement(self, tab:CreateTextbox({
-			Name = "Text",
-			Default = node.Text,
-			TextDisappear = false,
-			Callback = function(text)
-				node.Text = tostring(text)
-				self:_refreshStructure()
-				self:_refreshExport()
-			end,
-		}))
+		propTextbox(b, "Text", node.Text, function(text)
+			node.Text = tostring(text)
+			b:_refreshCanvas()
+			b:_refreshExport()
+		end)
 	end
 
-	-- common block actions
-	addPropElement(self, tab:CreateButton({
-		Name = "Move up",
-		Callback = function()
-			if self:MoveSelected(-1) then
-				self:_refreshAll()
-			end
-		end,
-	}))
-	addPropElement(self, tab:CreateButton({
-		Name = "Move down",
-		Callback = function()
-			if self:MoveSelected(1) then
-				self:_refreshAll()
-			end
-		end,
-	}))
-	addPropElement(self, tab:CreateButton({
-		Name = "Duplicate",
-		Callback = function()
-			if self:DuplicateSelected() then
-				self:_refreshAll()
-			end
-		end,
-	}))
-	addPropElement(self, tab:CreateButton({
-		Name = "Delete",
-		Callback = function()
-			if self:DeleteSelected() then
-				self:_refreshAll()
-			end
-		end,
-	}))
+	propButton(b, "Duplicate", Color3.fromRGB(66, 133, 244), function()
+		if b:DuplicateSelected() then
+			b:_refreshAll()
+		end
+	end)
+	propButton(b, "Delete", Color3.fromRGB(225, 90, 90), function()
+		if b:DeleteSelected() then
+			b:_refreshAll()
+		end
+	end)
+end
+
+----------------------------------------------------------------
+-- Export panel
+----------------------------------------------------------------
+
+function Builder:_openExportPanel()
+	if self._exportOverlay and not self._exportOverlay._destroyed then
+		self._exportOverlay.Visible = true
+		self:_refreshExport()
+		return
+	end
+
+	local overlay = Create("TextButton", {
+		Name = "ExportOverlay",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.45,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 50,
+		Parent = self._gui,
+	})
+	self._exportOverlay = overlay
+	overlay.Activated:Connect(function()
+		overlay.Visible = false
+	end)
+
+	local panel = Create("Frame", {
+		Name = "Panel",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(0.9, 0, 0, 480),
+		BackgroundColor3 = Color3.fromRGB(24, 27, 39),
+		BorderSizePixel = 0,
+		Active = true,
+		ZIndex = 51,
+		Parent = overlay,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = panel })
+	Create("UISizeConstraint", { MaxSize = Vector2.new(620, 480), Parent = panel })
+
+	Create("TextLabel", {
+		Position = UDim2.new(0, 14, 0, 10),
+		Size = UDim2.new(1, -70, 0, 22),
+		BackgroundTransparency = 1,
+		Text = "Export",
+		TextColor3 = Color3.fromRGB(235, 238, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = panel,
+	})
+	local closeBtn = Create("TextButton", {
+		Position = UDim2.new(1, -40, 0, 8),
+		Size = UDim2.new(0, 30, 0, 26),
+		BackgroundColor3 = Color3.fromRGB(225, 90, 90),
+		Text = "X",
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		AutoButtonColor = true,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = closeBtn })
+	closeBtn.Activated:Connect(function()
+		overlay.Visible = false
+	end)
+
+	local codeScroll = Create("ScrollingFrame", {
+		Position = UDim2.new(0, 14, 0, 40),
+		Size = UDim2.new(1, -28, 0, 180),
+		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		ScrollBarThickness = 3,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = codeScroll })
+	self._codeLabel = Create("TextLabel", {
+		Size = UDim2.new(1, -12, 0, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Color3.fromRGB(190, 200, 225),
+		Font = Enum.Font.Code,
+		TextSize = 12,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		ZIndex = 52,
+		Parent = codeScroll,
+	})
+
+	local function panelButton(text, yPos, color)
+		local btn = Create("TextButton", {
+			Position = UDim2.new(0, 14, 0, yPos),
+			Size = UDim2.new(0, 150, 0, 30),
+			BackgroundColor3 = color or Color3.fromRGB(38, 43, 62),
+			Text = text,
+			TextColor3 = Color3.fromRGB(255, 255, 255),
+			Font = Enum.Font.GothamBold,
+			TextSize = 12,
+			AutoButtonColor = true,
+			ZIndex = 52,
+			Parent = panel,
+		})
+		Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = btn })
+		return btn
+	end
+
+	local copyBtn = panelButton("Copy code", 228, Color3.fromRGB(66, 133, 244))
+	copyBtn.Activated:Connect(function()
+		local code = self:Generate()
+		if clipboardAvailable() and copyText(code) then
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Code copied to clipboard", Type = "success", Duration = 3 })
+		else
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Clipboard not available - the code is shown above", Type = "warning", Duration = 5 })
+		end
+	end)
+	local saveBtn = panelButton("Save .luau file", 228)
+	saveBtn.Position = UDim2.new(0, 174, 0, 228)
+	saveBtn.Activated:Connect(function()
+		local code = self:Generate()
+		local name = slugify(self._project.window.Name)
+		local path = "PolarisBuilder/" .. name .. ".luau"
+		if saveFile(path, code) then
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Saved to " .. path, Type = "success", Duration = 4 })
+		else
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Saving files is not available here (executor only)", Type = "warning", Duration = 4 })
+		end
+	end)
+
+	local jsonScroll = Create("ScrollingFrame", {
+		Position = UDim2.new(0, 14, 0, 268),
+		Size = UDim2.new(1, -28, 0, 90),
+		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		ScrollBarThickness = 3,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = jsonScroll })
+	self._jsonLabel = Create("TextLabel", {
+		Size = UDim2.new(1, -12, 0, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Color3.fromRGB(150, 158, 185),
+		Font = Enum.Font.Code,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		ZIndex = 52,
+		Parent = jsonScroll,
+	})
+
+	local copyJsonBtn = panelButton("Copy project JSON", 366, Color3.fromRGB(120, 130, 255))
+	copyJsonBtn.Activated:Connect(function()
+		local json = self:ExportJSON()
+		if clipboardAvailable() and copyText(json) then
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Project JSON copied to clipboard", Type = "success", Duration = 3 })
+		else
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Clipboard not available - JSON is shown above", Type = "warning", Duration = 5 })
+		end
+	end)
+
+	local importBox = Create("TextBox", {
+		Position = UDim2.new(0, 14, 0, 404),
+		Size = UDim2.new(1, -28, 0, 34),
+		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
+		Text = "",
+		PlaceholderText = "Paste project JSON here, then press Load",
+		TextColor3 = Color3.fromRGB(235, 238, 255),
+		PlaceholderColor3 = Color3.fromRGB(120, 126, 150),
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = importBox })
+	local loadBtn = panelButton("Load JSON", 444, Color3.fromRGB(76, 175, 110))
+	loadBtn.Size = UDim2.new(0, 150, 0, 28)
+	loadBtn.Activated:Connect(function()
+		local ok, err = pcall(function()
+			self:ImportJSON(tostring(importBox.Text))
+		end)
+		if ok then
+			self:_refreshAll()
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Project imported", Type = "success", Duration = 3 })
+		else
+			Polaris:Notify({ Title = "Polaris Builder", Content = "Import failed: " .. tostring(err), Type = "error", Duration = 6 })
+		end
+	end)
+
+	self:_refreshExport()
+end
+
+----------------------------------------------------------------
+-- Refresh helpers
+----------------------------------------------------------------
+
+function Builder:_refreshExport()
+	if self._codeLabel and not self._codeLabel._destroyed then
+		self._codeLabel.Text = self:Generate()
+	end
+	if self._jsonLabel and not self._jsonLabel._destroyed then
+		self._jsonLabel.Text = self:ExportJSON()
+	end
+end
+
+function Builder:_refreshAll()
+	if self._hubNameBox and not self._hubNameBox._destroyed then
+		self._hubNameBox.Text = tostring(self._project.window.Name)
+	end
+	self:_refreshCanvas()
+	self:_refreshProperties()
+	self:_refreshExport()
 end
 
 

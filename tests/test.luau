@@ -62,7 +62,7 @@ end
 
 check("library loads and exposes API", function()
 	assert(type(Polaris) == "table", "Polaris is not a table")
-	assert(Polaris.Version == "1.1.0", "wrong version")
+	assert(Polaris.Version == "1.2.0", "wrong version")
 	assert(type(Polaris.CreateWindow) == "function")
 	assert(type(Polaris.Themes.Default) == "table")
 	assert(type(Polaris.Notify) == "function")
@@ -580,27 +580,21 @@ check("builder JSON round trip", function()
 end)
 
 check("builder UI lifecycle", function()
+	B:NewProject()
 	B.SplashDuration = 0
 	B:Close()
 	assert(B:IsOpen() == false, "builder should start closed")
 	B:Open()
 	assert(B:IsOpen() == true, "builder should be open")
-	assert(#B._window._tabs == 4, "builder should have Build/Properties/Preview/Export tabs")
-	-- structure list shows the default project's blocks
-	local structLabels = {}
-	for _, el in B._structElements do
-		table.insert(structLabels, el._config.Name)
-	end
-	local foundToggle = false
-	for _, l in structLabels do
-		if l:find("Toggle", 1, true) then
-			foundToggle = true
-		end
-	end
-	assert(foundToggle, "structure list does not show the default toggle")
+	assert(B._gui ~= nil and not B._gui._destroyed, "fullscreen gui missing")
+	-- one column per tab, one block frame per node
+	assert(#B._columns == 1, "canvas should render one column per tab")
+	assert(#B._columns[1].blockFrames == 2, "default project has 2 blocks")
+	-- palette lists the block types
+	assert(#B._paletteButtons == 10, "palette should list 10 block types")
 	B:Close()
 	assert(B:IsOpen() == false, "builder should be closed")
-	assert(B._window == nil, "window reference not cleared")
+	assert(B._gui == nil, "gui reference not cleared")
 	assert(B._project ~= nil, "project should survive close")
 	-- reopen works and does not stack
 	B:Open()
@@ -668,7 +662,7 @@ check("generated script executes against the mock", function()
 	local ok, err = pcall(chunk)
 	assert(ok, "generated code failed: " .. tostring(err))
 	local lib2 = env2.__LOADED_LIB
-	assert(type(lib2) == "table" and lib2.Version == "1.1.0", "loader did not return the library")
+	assert(type(lib2) == "table" and lib2.Version == "1.2.0", "loader did not return the library")
 	assert(#lib2._windows == 1, "generated script did not create a window")
 	local gen = lib2._windows[1]
 	assert(gen._config.Name == "CodeGenHub", "generated window has wrong name")
@@ -703,12 +697,13 @@ check("builder export works without clipboard or files", function()
 	B.SplashDuration = 0
 	B:Close()
 	B:Open()
-	B:_refreshExport()
-	assert(B._elJsonOut ~= nil and type(B._elJsonOut._value) == "string" and #B._elJsonOut._value > 10,
-		"JSON output paragraph should be populated")
-	assert(B._elCode ~= nil and type(B._elCode._value) == "string" and #B._elCode._value > 100,
-		"code output paragraph should be populated")
+	B:_openExportPanel()
+	assert(B._codeLabel ~= nil and type(B._codeLabel.Text) == "string" and #B._codeLabel.Text > 100,
+		"code output should be populated")
+	assert(B._jsonLabel ~= nil and type(B._jsonLabel.Text) == "string" and #B._jsonLabel.Text > 10,
+		"JSON output should be populated")
 	B:Close()
+	assert(B._codeLabel == nil or B._codeLabel._destroyed, "export labels should die with the gui")
 end)
 
 check("builder close during splash aborts the open", function()
@@ -731,16 +726,15 @@ check("builder close during splash aborts the open", function()
 	B:Close()
 end)
 
-check("builder window destroy cleans up its preview", function()
+check("builder close cleans up its preview", function()
 	B:NewProject()
 	B.SplashDuration = 0
 	B:Close()
 	B:Open()
 	local prev = B:OpenPreview()
 	assert(prev ~= nil, "preview missing")
-	B._window:Destroy() -- same path as the window's X button
-	assert(prev._destroyed == true, "preview should close with the builder window")
-	assert(B._window == nil, "builder window reference not cleared")
+	B:Close() -- same path as the editor's X button
+	assert(prev._destroyed == true, "preview should close with the builder")
 	assert(B:IsOpen() == false, "builder should report closed")
 	local stillRegistered = false
 	for _, w in Polaris._windows do
@@ -749,7 +743,6 @@ check("builder window destroy cleans up its preview", function()
 		end
 	end
 	assert(stillRegistered == false, "destroyed preview still registered")
-	B:Close()
 end)
 
 check("builder codegen escapes control characters", function()
@@ -851,6 +844,54 @@ check("generated script with every block type round-trips values", function()
 		end
 	end
 	gen:Destroy()
+end)
+
+
+check("builder palette tap adds a block", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local chip = B._paletteButtons[3] -- Toggle
+	local touch = mock.Enum.UserInputType.Touch
+	chip.InputBegan:Fire(mock.makeInput(touch, nil, 20, 20))
+	local UIS = mock.UIS()
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 20, 20))
+	assert(#B._project.tabs[1].nodes == 3, "palette tap should add a block")
+	assert(B._selected ~= nil and B._selected.node ~= nil, "added block should be selected")
+	assert(#B._columns[1].blockFrames == 3, "canvas should re-render after adding")
+	B:Close()
+end)
+
+check("builder drag moves blocks between tabs", function()
+	B:NewProject()
+	local proj = B._project
+	local tab1 = proj.tabs[1]
+	local t2 = B:AddTab("Second")
+	local node = tab1.nodes[2] -- the Toggle
+	assert(B:_moveNode(node, t2, 1) == true, "moveNode failed")
+	assert(#tab1.nodes == 1, "node not removed from the first tab")
+	assert(t2.nodes[1] == node, "node not inserted into the second tab")
+	assert(B:_moveNode(node, tab1, 2) == true)
+	assert(tab1.nodes[2] == node, "node not moved back")
+	local sec = B:AddBlock("Section")
+	assert(B:_moveNode(sec, tab1, 1) == true)
+	assert(tab1.nodes[1] == sec, "reorder within a tab failed")
+end)
+
+check("builder canvas block tap selects", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local bf = B._columns[1].blockFrames[2] -- the Toggle block
+	local touch = mock.Enum.UserInputType.Touch
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 100, 100))
+	local UIS = mock.UIS()
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 100, 100))
+	assert(B._selected ~= nil and B._selected.node ~= nil, "tapping a block should select it")
+	assert(#B._propRows > 0, "properties panel should render rows for the selection")
+	B:Close()
 end)
 
 ----------------------------------------------------------------

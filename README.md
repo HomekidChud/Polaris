@@ -14,7 +14,7 @@ build/         -- obfuscation pipeline (repeatable build script)
 
 ## Status: prototype, logic-tested only
 
-- The code compiles under the Luau compiler, and a 45-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
+- The code compiles under the Luau compiler, and a 55-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
 - **Visual rendering, dragging, touch handling, splash animation, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
 
 ## Quick start
@@ -25,7 +25,7 @@ build/         -- obfuscation pipeline (repeatable build script)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Builder.luau"))()
 ```
 
-You get an animated splash, then a block editor: add tabs, sections and controls as blocks, edit their properties, preview the live result, and export a ready-to-paste script. The library file itself never opens anything on its own — the Builder only starts from `Builder.luau` (or an explicit `Polaris.Builder:Open()` call).
+You get an animated splash, then a fullscreen block editor, Scratch style: drag blocks from the left palette onto the canvas, tap one to edit it in the right-hand properties panel, preview the live result, and export a ready-to-paste script. The library file itself never opens anything on its own — the Builder only starts from `Builder.luau` (or an explicit `Polaris.Builder:Open()` call).
 
 **The library — use it in your own script:**
 
@@ -138,6 +138,15 @@ Two behavior notes: keybind callbacks mean "key was pressed", so config load/imp
 
 ### Builder
 
+The editor is one fullscreen canvas with `IgnoreGuiInset` (it covers the whole viewport, including the Roblox topbar):
+
+- **Left palette** — tap a chip to add that block to the current tab, or drag it onto a specific column. Dragging a block onto the palette deletes it.
+- **Center canvas** — one column per tab. Drag blocks to reorder them within a tab or move them between tabs; tap a block to select it.
+- **Right properties panel** — everything about the selected block. Your edits save when you reselect (not on every keystroke).
+- **Top bar** — hub name (live), `+ Tab`, `Preview`, `Export`, `New`, `X`.
+
+Works with a mouse and with touch — blocks, chips and the delete zone are big enough to hit on a phone.
+
 | Member | Notes |
 |---|---|
 | `Polaris.Builder:Open()` | splash (if `SplashDuration > 0`) then the editor |
@@ -207,10 +216,12 @@ Run `example.luau` as a LocalScript (library in ReplicatedStorage) and verify:
 Builder checklist (run `Polaris.Builder:Open()` in Studio):
 
 1. Splash: dark screen, expanding ring, POLARIS title fades in, progress bar fills, fades to the editor
-2. Add blocks, select them in Structure, edit them in Properties
-3. Open Preview — a real window with your blocks appears; Close Preview removes it
-4. Export: the generated code runs (paste it into a LocalScript with the library in ReplicatedStorage, replacing the loadstring line with a require)
-5. Project JSON export/import round-trips
+2. The editor covers the entire screen (no topbar gap) — palette left, canvas center, properties right
+3. On desktop and on a phone: tap a palette chip to add a block, drag a block to reorder / move tabs / drop on the palette to delete
+4. Tap a block — properties appear on the right; edits stick after reselecting
+5. Open Preview — a real window with your blocks appears; Close Preview removes it
+6. Export: the generated code runs (paste it into a LocalScript with the library in ReplicatedStorage, replacing the loadstring line with a require)
+7. Project JSON export/import round-trips
 
 ## Testing
 
