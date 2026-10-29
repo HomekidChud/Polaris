@@ -6,7 +6,7 @@
 	3. Hit Play - the window appears immediately (no Init call needed)
 
 	Executor variant: replace the two lines below the marker with
-		local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOURNAME/YOURREPO/main/Polaris.luau"))()
+		local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))()
 	and replace setclipboard usage with your executor's clipboard API.
 ]]
 

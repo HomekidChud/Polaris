@@ -15,7 +15,7 @@
 	  - Touch support and clean teardown (no leaked connections)
 
 	Usage (executor):
-		local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOURNAME/YOURREPO/main/Polaris.luau"))()
+		local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))()
 	Usage (Studio / ModuleScript):
 		local Polaris = require(script.Parent.Polaris)
 

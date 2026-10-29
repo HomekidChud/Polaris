@@ -23,7 +23,7 @@ local Polaris = require(ReplicatedStorage:WaitForChild("Polaris"))
 
 **Executor** (once the file is on your GitHub):
 ```lua
-local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOURNAME/YOURREPO/main/Polaris.luau"))()
+local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))()
 ```
 
 ```lua
