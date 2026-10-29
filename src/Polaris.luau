@@ -1,5 +1,5 @@
 --[[
-	Polaris UI Library v1.2.0
+	Polaris UI Library v1.2.3
 	--------------------------
 	A modern, single-file UI library for Roblox Luau, plus a visual
 	Polaris Builder: run it on its own and get an animated splash
@@ -44,7 +44,7 @@ if not LocalPlayer then
 	error("[Polaris] This library must run on the client (LocalPlayer is nil)", 0)
 end
 
-local PolarisVersion = "1.2.0"
+local PolarisVersion = "1.2.3"
 
 -- Optional executor filesystem API (only used if present)
 local FS = nil
@@ -3663,6 +3663,10 @@ function Builder:_applyResponsive()
 	end
 	local compact = width < Builder.MinWorkspaceWidth
 	self._compact = compact
+	if compact and self._paletteOpen == true and self._propsOpen == true then
+		-- shrinking to a phone: only one drawer at a time
+		self._paletteOpen = nil
+	end
 
 	local function panelVisible(state)
 		if compact then

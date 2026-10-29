@@ -14,7 +14,7 @@ build/         -- obfuscation pipeline (repeatable build script)
 
 ## Status: prototype, logic-tested only
 
-- The code compiles under the Luau compiler, and a 66-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
+- The code compiles under the Luau compiler, and a 67-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
 - **Visual rendering, dragging, touch handling, splash animation, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
 
 ## Quick start
@@ -138,14 +138,14 @@ Two behavior notes: keybind callbacks mean "key was pressed", so config load/imp
 
 ### Builder
 
-The editor is one fullscreen canvas with `IgnoreGuiInset` (it covers the whole viewport, including the Roblox topbar):
+The editor is one fullscreen canvas that fills the entire viewport (`IgnoreGuiInset` removes the topbar inset):
 
 - **Left palette** — tap a chip to add that block to the current tab, or drag it onto a specific column. Dragging a block onto the palette deletes it.
 - **Center canvas** — one column per tab. Drag blocks to reorder them within a tab or move them between tabs; tap a block to select it.
 - **Right properties panel** — everything about the selected block. Your edits save when you reselect (not on every keystroke).
 - **Top bar** — hub name (live), palette/properties toggles, `+ Tab`, `Preview`, `Export`, `New`, `X`.
 
-On screens narrower than `Builder.MinWorkspaceWidth` (900px by default — phones), the palette and properties collapse into toggleable drawers (the ◧ and ⚙ top-bar buttons) that overlay the canvas, which keeps the full screen width; only one drawer shows at a time, tapping a block opens the properties drawer automatically, and the compact top bar moves New into the export panel (which scrolls, so it works at any size). The editor also covers the Roblox topbar via `IgnoreGuiInset` and best-effort hides the hideable CoreGui (chat, backpack, leaderboard, player list, emotes, health) while it's open, restoring it on close — scripts can't remove the topbar buttons themselves.
+On screens narrower than `Builder.MinWorkspaceWidth` (900px by default — phones), the palette and properties collapse into toggleable drawers (the ◧ and ⚙ top-bar buttons) that overlay the canvas, which keeps the full screen width; only one drawer shows at a time, tapping a block opens the properties drawer automatically, and the compact top bar moves New into the export panel (which scrolls, so it works at any size). While the editor is open it temporarily disables the CoreGui features it can read and hide (chat, backpack, leaderboard, player list, emotes, health) and restores their exact previous states on close — protected Roblox controls may still appear on screen, and scripts cannot remove the topbar itself.
 
 Everything is designed for touch as well as mouse (drag with a threshold and a floating ghost block, big hit targets, tap-to-add), but none of it has been verified on a real device yet — test in Studio's device emulator before shipping.
 
@@ -222,7 +222,7 @@ Builder checklist (run `Polaris.Builder:Open()` in Studio):
 3. On desktop and on a phone: tap a palette chip to add a block, drag a block to reorder / move tabs / drop on the palette to delete
 4. Tap a block — properties appear on the right; edits stick after reselecting
 5. In the device emulator at phone size: the palette/properties are drawers, the ◧/⚙ buttons toggle them, and the canvas spans the full width
-6. Chat/backpack/leaderboard hide while the editor is open and come back after close
+6. Chat/backpack/leaderboard hide while the editor is open and come back with their original states after close
 7. Open Preview — a real window with your blocks appears; Close Preview removes it
 8. Export: the generated code runs (paste it into a LocalScript with the library in ReplicatedStorage, replacing the loadstring line with a require)
 9. Project JSON export/import round-trips

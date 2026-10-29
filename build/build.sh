@@ -28,6 +28,7 @@ python3 build/prepare_lua51.py src/Polaris.luau build/intermediate.lua
 echo "-- verifying readable source"
 "$LUNE_BIN" run tests/test.luau src/Polaris.luau | tail -1
 echo "-- installing obfuscated artifact at the repo root and verifying it"
-cp build/Polaris.obfuscated.lua Polaris.luau
+VERSION=$(sed -n 's/^local PolarisVersion = "\(.*\)"$/\1/p' src/Polaris.luau)
+{ echo "-- Polaris v$VERSION (obfuscated build). Readable source: src/Polaris.luau"; cat build/Polaris.obfuscated.lua; } > Polaris.luau
 "$LUNE_BIN" run tests/test.luau | tail -1
 echo "build ok - the published root Polaris.luau is the obfuscated build"

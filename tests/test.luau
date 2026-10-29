@@ -62,7 +62,7 @@ end
 
 check("library loads and exposes API", function()
 	assert(type(Polaris) == "table", "Polaris is not a table")
-	assert(Polaris.Version == "1.2.0", "wrong version")
+	assert(Polaris.Version == "1.2.3", "wrong version")
 	assert(type(Polaris.CreateWindow) == "function")
 	assert(type(Polaris.Themes.Default) == "table")
 	assert(type(Polaris.Notify) == "function")
@@ -662,7 +662,7 @@ check("generated script executes against the mock", function()
 	local ok, err = pcall(chunk)
 	assert(ok, "generated code failed: " .. tostring(err))
 	local lib2 = env2.__LOADED_LIB
-	assert(type(lib2) == "table" and lib2.Version == "1.2.0", "loader did not return the library")
+	assert(type(lib2) == "table" and lib2.Version == "1.2.3", "loader did not return the library")
 	assert(#lib2._windows == 1, "generated script did not create a window")
 	local gen = lib2._windows[1]
 	assert(gen._config.Name == "CodeGenHub", "generated window has wrong name")
@@ -1235,6 +1235,29 @@ check("builder coregui snapshot skips unreadable features", function()
 	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.PlayerList] == true,
 		"playerlist must be restored")
 	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.EmotesMenu] == nil, "still untouched")
+end)
+
+
+check("builder desktop to phone resize normalizes drawers", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local cam = env.workspace.CurrentCamera
+	-- open both panels on desktop (wide toggles are independent)
+	B._blocksBtn.Activated:Fire() -- close (was open by default)
+	B._blocksBtn.Activated:Fire() -- open again
+	B._propsBtn.Activated:Fire() -- close
+	B._propsBtn.Activated:Fire() -- open
+	assert(B._palette.Visible == true and B._propList.Visible == true, "both panels open on desktop")
+	-- shrink to a phone: only one drawer may show, canvas stays full width
+	cam.ViewportSize = mock.Vector2(390, 844)
+	assert(B._compact == true)
+	assert(B._propList.Visible == true, "properties drawer should be the one kept")
+	assert(B._palette.Visible == false, "palette drawer should close on resize")
+	assert(B._canvas.Size.X.Offset == 0, "canvas must stay full width")
+	cam.ViewportSize = mock.Vector2(1920, 1080)
+	B:Close()
 end)
 
 ----------------------------------------------------------------
