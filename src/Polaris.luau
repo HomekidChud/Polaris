@@ -2413,6 +2413,52 @@ Polaris.Builder = Builder
 -- public knobs
 Builder.SplashDuration = 1.6 -- seconds; 0 disables the splash
 Builder.PolarisURL = "https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"
+Builder.MinWorkspaceWidth = 760 -- below this the side panels become toggleable drawers
+Builder.SuppressCoreGui = true -- best-effort: hide the hideable CoreGui while the editor is open
+
+local COREGUI_TYPES = {
+	"Backpack", "Chat", "EmotesMenu", "Health", "Leaderboard", "PlayerList",
+}
+
+function Builder:_suppressCoreGui()
+	if self._coreHidden ~= nil or Builder.SuppressCoreGui ~= true then
+		return
+	end
+	local starterGui = game:GetService("StarterGui")
+	if type(starterGui) ~= "table" or type(starterGui.SetCoreGuiEnabled) ~= "function" then
+		return
+	end
+	local hidden = {}
+	for _, name in COREGUI_TYPES do
+		local t = Enum.CoreGuiType[name]
+		if t ~= nil then
+			local ok = pcall(function()
+				starterGui:SetCoreGuiEnabled(t, false)
+			end)
+			if ok then
+				hidden[#hidden + 1] = t
+			end
+		end
+	end
+	self._coreHidden = hidden
+end
+
+function Builder:_restoreCoreGui()
+	local hidden = self._coreHidden
+	self._coreHidden = nil
+	if hidden == nil or #hidden == 0 then
+		return
+	end
+	local starterGui = game:GetService("StarterGui")
+	if type(starterGui) ~= "table" or type(starterGui.SetCoreGuiEnabled) ~= "function" then
+		return
+	end
+	for _, t in hidden do
+		pcall(function()
+			starterGui:SetCoreGuiEnabled(t, true)
+		end)
+	end
+end
 
 local KEY_OPTIONS = {
 	"RightControl", "LeftControl", "RightAlt", "LeftAlt", "RightShift", "LeftShift",
@@ -3304,6 +3350,13 @@ function Builder:Close()
 		self._ghost = nil
 	end
 	self:ClosePreview()
+	self:_restoreCoreGui()
+	if self._viewportConn then
+		pcall(function()
+			self._viewportConn:Disconnect()
+		end)
+		self._viewportConn = nil
+	end
 	if self._gui and not self._gui._destroyed then
 		self._gui:Destroy()
 	end
@@ -3462,6 +3515,11 @@ function Builder:_onDragEnd(input)
 			drag.onTap()
 		else
 			self._selected = drag.selection
+			if self._compact and self._propsOpen ~= true then
+				-- on a phone, tapping a block should reveal the properties drawer
+				self._propsOpen = true
+				self:_applyResponsive()
+			end
 			self:_refreshCanvas()
 			self:_refreshProperties()
 		end
@@ -3525,6 +3583,80 @@ end
 -- Fullscreen editor
 ----------------------------------------------------------------
 
+function Builder:_applyResponsive()
+	local width = 0
+	pcall(function()
+		width = workspace.CurrentCamera.ViewportSize.X
+	end)
+	if type(width) ~= "number" or width <= 0 then
+		width = 1024
+	end
+	local compact = width < Builder.MinWorkspaceWidth
+	self._compact = compact
+
+	local function panelVisible(state)
+		if compact then
+			return state == true
+		end
+		return state ~= false
+	end
+
+	local paletteOn = panelVisible(self._paletteOpen)
+	local propsOn = panelVisible(self._propsOpen)
+
+	if self._palette and not self._palette._destroyed then
+		self._palette.Visible = paletteOn
+		self._palette.ZIndex = paletteOn and compact and 6 or 1
+	end
+	if self._propList and not self._propList._destroyed then
+		self._propList.Visible = propsOn
+		self._propList.ZIndex = propsOn and compact and 6 or 1
+	end
+	if self._canvas and not self._canvas._destroyed then
+		local left = paletteOn and 158 or 0
+		local right = propsOn and 240 or 0
+		self._canvas.Position = UDim2.new(0, left, 0, 58)
+		self._canvas.Size = UDim2.new(1, -(left + right), 1, -58)
+	end
+
+	-- compact top bar: shrink labels, hide the controls that live elsewhere
+	local function setBtn(btn, text, w)
+		if btn and not btn._destroyed then
+			btn.Text = text
+			btn.Size = UDim2.new(0, w, 0, 34)
+		end
+	end
+	if compact then
+		if self._logoLabel and not self._logoLabel._destroyed then
+			self._logoLabel.Visible = false
+		end
+		if self._hubNameBox and not self._hubNameBox._destroyed then
+			self._hubNameBox.Position = UDim2.new(0, 8, 0, 9)
+			self._hubNameBox.Size = UDim2.new(0, 74, 0, 34)
+		end
+		if self._addTabBtn then
+			self._addTabBtn.Visible = false -- the canvas has its own + Tab button
+		end
+		setBtn(self._previewBtn, "View", 54)
+		setBtn(self._exportBtn, "Exp", 46)
+		setBtn(self._newBtn, "New", 46)
+	else
+		if self._logoLabel and not self._logoLabel._destroyed then
+			self._logoLabel.Visible = true
+		end
+		if self._hubNameBox and not self._hubNameBox._destroyed then
+			self._hubNameBox.Position = UDim2.new(0, 190, 0, 9)
+			self._hubNameBox.Size = UDim2.new(0, 180, 0, 34)
+		end
+		if self._addTabBtn then
+			self._addTabBtn.Visible = true
+		end
+		setBtn(self._previewBtn, "Preview", 92)
+		setBtn(self._exportBtn, "Export", 92)
+		setBtn(self._newBtn, "New", 64)
+	end
+end
+
 function Builder:_build()
 	self._columns = {}
 	self._inputConns = {}
@@ -3569,7 +3701,7 @@ function Builder:_build()
 		Parent = topBar,
 	})
 
-	Create("TextLabel", {
+	local logoLabel = Create("TextLabel", {
 		Name = "Logo",
 		Position = UDim2.new(0, 12, 0, 0),
 		Size = UDim2.new(0, 170, 1, 0),
@@ -3581,6 +3713,7 @@ function Builder:_build()
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = topBar,
 	})
+	self._logoLabel = logoLabel
 
 	self._hubNameBox = Create("TextBox", {
 		Name = "HubName",
@@ -3616,25 +3749,65 @@ function Builder:_build()
 		return b
 	end
 
+	local function compactTopState()
+		local cam = nil
+		pcall(function()
+			cam = workspace.CurrentCamera
+		end)
+		local width = 0
+		if cam then
+			pcall(function()
+				width = cam.ViewportSize.X
+			end)
+		end
+		return (type(width) == "number" and width > 0 and width < Builder.MinWorkspaceWidth)
+	end
+
+	local blocksBtn = topButton("\226\151\167", 44) -- block palette toggle
+	blocksBtn.Activated:Connect(function()
+		if compactTopState() then
+			self._paletteOpen = self._paletteOpen ~= true
+		else
+			self._paletteOpen = self._paletteOpen == false
+		end
+		self:_applyResponsive()
+	end)
+	self._blocksBtn = blocksBtn
+
+	local propsBtn = topButton("\226\154\153", 44) -- properties toggle
+	propsBtn.Activated:Connect(function()
+		if compactTopState() then
+			self._propsOpen = self._propsOpen ~= true
+		else
+			self._propsOpen = self._propsOpen == false
+		end
+		self:_applyResponsive()
+	end)
+	self._propsBtn = propsBtn
+
 	local addTabBtn = topButton("+ Tab", 80, Color3.fromRGB(66, 133, 244))
 	addTabBtn.Activated:Connect(function()
 		self:AddTab("Tab" .. tostring(#self._project.tabs + 1))
 		self:_refreshAll()
 	end)
+	self._addTabBtn = addTabBtn
 	local previewBtn = topButton("Preview", 92, Color3.fromRGB(76, 175, 110))
 	previewBtn.Activated:Connect(function()
 		self:OpenPreview()
 	end)
+	self._previewBtn = previewBtn
 	local exportBtn = topButton("Export", 92, Color3.fromRGB(120, 130, 255))
 	exportBtn.Activated:Connect(function()
 		self:_openExportPanel()
 	end)
+	self._exportBtn = exportBtn
 	local newBtn = topButton("New", 64)
 	newBtn.Activated:Connect(function()
 		self:NewProject()
 		self:_refreshAll()
 		Polaris:Notify({ Title = "Polaris Builder", Content = "Started a new project", Duration = 3 })
 	end)
+	self._newBtn = newBtn
 	local closeBtn = topButton("X", 34, Color3.fromRGB(225, 90, 90))
 	closeBtn.Activated:Connect(function()
 		self:Close()
@@ -3710,7 +3883,12 @@ function Builder:_build()
 						table.insert(tab.nodes, node)
 						self._selected = { tab = tab, node = node }
 					end
+					if self._compact and self._paletteOpen == true then
+						-- on a phone, close the palette drawer so the new block is visible
+						self._paletteOpen = false
+					end
 					self:_refreshAll()
+					self:_applyResponsive()
 				end,
 			}
 		end)
@@ -3770,7 +3948,15 @@ function Builder:_build()
 		end
 	end))
 
+	pcall(function()
+		self._viewportConn = workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			self:_applyResponsive()
+		end)
+	end)
+
 	self:_refreshAll()
+	self:_suppressCoreGui()
+	self:_applyResponsive()
 end
 
 ----------------------------------------------------------------
@@ -4272,7 +4458,7 @@ function Builder:_openExportPanel()
 		Name = "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.new(0.9, 0, 0, 480),
+		Size = UDim2.new(0.94, 0, 0.92, 0),
 		BackgroundColor3 = Color3.fromRGB(24, 27, 39),
 		BorderSizePixel = 0,
 		Active = true,
@@ -4280,7 +4466,7 @@ function Builder:_openExportPanel()
 		Parent = overlay,
 	})
 	Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = panel })
-	Create("UISizeConstraint", { MaxSize = Vector2.new(620, 480), Parent = panel })
+	Create("UISizeConstraint", { MaxSize = Vector2.new(620, 520), MinSize = Vector2.new(280, 240), Parent = panel })
 
 	Create("TextLabel", {
 		Position = UDim2.new(0, 14, 0, 10),

@@ -14,7 +14,7 @@ build/         -- obfuscation pipeline (repeatable build script)
 
 ## Status: prototype, logic-tested only
 
-- The code compiles under the Luau compiler, and a 55-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
+- The code compiles under the Luau compiler, and a 59-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
 - **Visual rendering, dragging, touch handling, splash animation, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
 
 ## Quick start
@@ -143,9 +143,11 @@ The editor is one fullscreen canvas with `IgnoreGuiInset` (it covers the whole v
 - **Left palette** — tap a chip to add that block to the current tab, or drag it onto a specific column. Dragging a block onto the palette deletes it.
 - **Center canvas** — one column per tab. Drag blocks to reorder them within a tab or move them between tabs; tap a block to select it.
 - **Right properties panel** — everything about the selected block. Your edits save when you reselect (not on every keystroke).
-- **Top bar** — hub name (live), `+ Tab`, `Preview`, `Export`, `New`, `X`.
+- **Top bar** — hub name (live), palette/properties toggles, `+ Tab`, `Preview`, `Export`, `New`, `X`.
 
-Works with a mouse and with touch — blocks, chips and the delete zone are big enough to hit on a phone.
+On screens narrower than `Builder.MinWorkspaceWidth` (760px by default — phones), the palette and properties collapse into toggleable drawers (the ◧ and ⚙ top-bar buttons) so the canvas gets the whole screen; tapping a block opens the properties drawer automatically. The editor also covers the Roblox topbar via `IgnoreGuiInset` and best-effort hides the hideable CoreGui (chat, backpack, leaderboard, player list, emotes, health) while it's open, restoring it on close — scripts can't remove the topbar buttons themselves.
+
+Everything is designed for touch as well as mouse (drag with a threshold and a floating ghost block, big hit targets, tap-to-add), but none of it has been verified on a real device yet — test in Studio's device emulator before shipping.
 
 | Member | Notes |
 |---|---|
@@ -219,9 +221,11 @@ Builder checklist (run `Polaris.Builder:Open()` in Studio):
 2. The editor covers the entire screen (no topbar gap) — palette left, canvas center, properties right
 3. On desktop and on a phone: tap a palette chip to add a block, drag a block to reorder / move tabs / drop on the palette to delete
 4. Tap a block — properties appear on the right; edits stick after reselecting
-5. Open Preview — a real window with your blocks appears; Close Preview removes it
-6. Export: the generated code runs (paste it into a LocalScript with the library in ReplicatedStorage, replacing the loadstring line with a require)
-7. Project JSON export/import round-trips
+5. In the device emulator at phone size: the palette/properties are drawers, the ◧/⚙ buttons toggle them, and the canvas spans the full width
+6. Chat/backpack/leaderboard hide while the editor is open and come back after close
+7. Open Preview — a real window with your blocks appears; Close Preview removes it
+8. Export: the generated code runs (paste it into a LocalScript with the library in ReplicatedStorage, replacing the loadstring line with a require)
+9. Project JSON export/import round-trips
 
 ## Testing
 

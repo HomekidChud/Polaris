@@ -362,6 +362,13 @@ services.RunService = withDefaults(M.InstanceNew("RunService"))
 -- CoreGui
 services.CoreGui = withDefaults(M.InstanceNew("CoreGui"))
 
+-- StarterGui with a recordable SetCoreGuiEnabled
+services.StarterGui = withDefaults(M.InstanceNew("StarterGui"))
+services.StarterGui._coreGuiState = {}
+function services.StarterGui:SetCoreGuiEnabled(coreGuiType, enabled)
+	self._coreGuiState[coreGuiType] = (enabled and true) or false
+end
+
 ----------------------------------------------------------------
 -- Env assembly
 ----------------------------------------------------------------

@@ -894,6 +894,163 @@ check("builder canvas block tap selects", function()
 	B:Close()
 end)
 
+
+check("builder suppresses coregui while open", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local starterGui = env.game:GetService("StarterGui")
+	local states = starterGui._coreGuiState
+	local n, allHidden = 0, true
+	for _, v in states do
+		n += 1
+		if v ~= false then
+			allHidden = false
+		end
+	end
+	assert(n >= 1, "SetCoreGuiEnabled should have been called")
+	assert(allHidden, "coregui should be hidden while the editor is open")
+	B:Close()
+	local allBack = true
+	for _, v in states do
+		if v ~= true then
+			allBack = false
+		end
+	end
+	assert(allBack, "coregui should be restored after close")
+end)
+
+check("builder compact layout on narrow screens", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local cam = env.workspace.CurrentCamera
+	cam.ViewportSize = mock.Vector2(390, 844) -- fires ViewportSize changed
+	assert(B._compact == true, "390px wide should be compact")
+	assert(B._palette.Visible == false, "palette should be a closed drawer on a phone")
+	assert(B._propList.Visible == false, "properties should be a closed drawer on a phone")
+	assert(B._canvas.Size.X.Offset == 0, "canvas should span the full width with drawers closed")
+	-- open the properties drawer from the top bar
+	B._propsBtn.Activated:Fire()
+	assert(B._propList.Visible == true, "props toggle should open the drawer")
+	assert(B._propList.ZIndex == 6, "open drawer should overlay the canvas")
+	assert(B._palette.Visible == false, "palette drawer should stay closed")
+	-- tapping a block reveals the properties drawer
+	B._propsBtn.Activated:Fire() -- close it again
+	assert(B._propList.Visible == false)
+	local bf = B._columns[1].blockFrames[1]
+	local touch = mock.Enum.UserInputType.Touch
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 100, 100))
+	mock.UIS().InputEnded:Fire(mock.makeInput(touch, nil, 100, 100))
+	assert(B._propList.Visible == true, "tapping a block should reveal the properties drawer")
+	-- back to desktop size: panels return
+	cam.ViewportSize = mock.Vector2(1920, 1080)
+	assert(B._compact ~= true, "1920px wide should not be compact")
+	assert(B._palette.Visible == true, "palette should return on desktop")
+	assert(B._propList.Visible == true, "properties should return on desktop")
+	B:Close()
+end)
+
+check("builder drag flows through input", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local proj = B._project
+	local tab1 = proj.tabs[1]
+	B:AddBlock("Button") -- 3 nodes now
+	B:_refreshAll()
+	local col1 = B._columns[1]
+	col1.frame.AbsolutePosition = mock.Vector2(166, 52)
+	col1.frame.AbsoluteSize = mock.Vector2(190, 400)
+	for i, bf in col1.blockFrames do
+		bf.AbsolutePosition = mock.Vector2(174, 90 + (i - 1) * 48)
+		bf.AbsoluteSize = mock.Vector2(174, 42)
+	end
+	B._palette.AbsolutePosition = mock.Vector2(0, 58)
+	B._palette.AbsoluteSize = mock.Vector2(150, 442)
+
+	local touch = mock.Enum.UserInputType.Touch
+	local UIS = mock.UIS()
+	local node1 = tab1.nodes[1]
+
+	local function layoutColumns()
+		for ci, col in B._columns do
+			col.frame.AbsolutePosition = mock.Vector2(166 + (ci - 1) * 210, 52)
+			col.frame.AbsoluteSize = mock.Vector2(190, 400)
+			for i, bf in col.blockFrames do
+				bf.AbsolutePosition = mock.Vector2(174 + (ci - 1) * 210, 90 + (i - 1) * 48)
+				bf.AbsoluteSize = mock.Vector2(174, 42)
+			end
+		end
+		B._palette.AbsolutePosition = mock.Vector2(0, 58)
+		B._palette.AbsoluteSize = mock.Vector2(150, 442)
+	end
+	layoutColumns()
+
+	-- 1) drag the first block below the third: reorder within the tab
+	local bf = B._columns[1].blockFrames[1]
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 250, 100))
+	UIS.InputChanged:Fire(mock.makeInput(touch, nil, 250, 200))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 250, 200))
+	assert(B._drag == nil, "drag should be cleared after drop")
+	assert(tab1.nodes[2] == node1, "block should have been reordered within the tab")
+
+	-- 2) drag it onto the palette: delete
+	layoutColumns()
+	bf = B._columns[1].blockFrames[2] -- the node we just moved is now second
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 250, 150))
+	UIS.InputChanged:Fire(mock.makeInput(touch, nil, 60, 300))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 60, 300))
+	assert(table.find(tab1.nodes, node1) == nil, "dropping a block on the palette should delete it")
+
+	-- 3) drag from the palette onto the column: create
+	local chip = B._paletteButtons[3] -- Toggle
+	chip.InputBegan:Fire(mock.makeInput(touch, nil, 75, 150))
+	UIS.InputChanged:Fire(mock.makeInput(touch, nil, 250, 300))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 250, 300))
+	assert(#tab1.nodes == 3, "dragging a chip onto the canvas should create a block")
+	assert(tab1.nodes[#tab1.nodes].Kind == "Toggle", "created block should match the dragged chip")
+
+	-- 4) drag a block to a second tab
+	local t2 = B:AddTab("Second")
+	B:_refreshAll()
+	layoutColumns()
+	local moved = tab1.nodes[1]
+	bf = B._columns[1].blockFrames[1]
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 250, 100))
+	UIS.InputChanged:Fire(mock.makeInput(touch, nil, 450, 150))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 450, 150))
+	assert(table.find(tab1.nodes, moved) == nil, "block should leave the first tab")
+	assert(t2.nodes[1] == moved, "block should land in the second tab")
+	B:Close()
+end)
+
+check("builder canvas tap selects the exact block", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local proj = B._project
+	local touch = mock.Enum.UserInputType.Touch
+	local UIS = mock.UIS()
+	-- tap the second block (the Toggle)
+	local bf = B._columns[1].blockFrames[2]
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 200, 150))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 200, 150))
+	assert(B._selected ~= nil and B._selected.node == proj.tabs[1].nodes[2],
+		"tapping a block should select exactly that block")
+	-- tap the first block: selection must change
+	local bf1 = B._columns[1].blockFrames[1]
+	bf1.InputBegan:Fire(mock.makeInput(touch, nil, 200, 80))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 200, 80))
+	assert(B._selected ~= nil and B._selected.node == proj.tabs[1].nodes[1],
+		"tapping another block should change the selection")
+	B:Close()
+end)
+
 ----------------------------------------------------------------
 -- Summary
 ----------------------------------------------------------------
