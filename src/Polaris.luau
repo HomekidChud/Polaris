@@ -2445,21 +2445,20 @@ function Builder:_suppressCoreGui()
 			return Enum.CoreGuiType[name]
 		end)
 		if okEnum and t ~= nil then
-			-- snapshot the current state so Close restores exactly what was there before
-			local wasEnabled = true
+			-- snapshot the current state so Close restores exactly what was there before.
+			-- if the original state can't be read, leave that feature alone entirely.
 			if okGet and type(getEnabled) == "function" then
 				local okVal, val = pcall(function()
 					return getEnabled(starterGui, t)
 				end)
 				if okVal and type(val) == "boolean" then
-					wasEnabled = val
+					local okSet = pcall(function()
+						setEnabled(starterGui, t, false)
+					end)
+					if okSet then
+						hidden[#hidden + 1] = { type = t, enabled = val }
+					end
 				end
-			end
-			local okSet = pcall(function()
-				setEnabled(starterGui, t, false)
-			end)
-			if okSet then
-				hidden[#hidden + 1] = { type = t, enabled = wasEnabled }
 			end
 		end
 	end
@@ -3577,7 +3576,8 @@ function Builder:_onDragEnd(input)
 			self._selected = drag.selection
 			if self._compact and self._propsOpen ~= true then
 				-- on a phone, tapping a block should reveal the properties drawer
-				self:_setDrawers(self._paletteOpen, true)
+				-- (closing the palette drawer so the block stays visible)
+				self:_setDrawers(nil, true)
 			end
 			self:_refreshCanvas()
 			self:_refreshProperties()
@@ -3718,10 +3718,9 @@ function Builder:_layoutTopBar()
 				btn.Visible = true
 				btn.Text = text
 				btn.Size = UDim2.new(0, w, 0, 34)
-				x = x + w
 				btn.AnchorPoint = Vector2.new(1, 0)
 				btn.Position = UDim2.new(1, -x, 0, 9)
-				x = x + 6
+				x = x + w + 6
 			end
 		end
 	end
@@ -3731,7 +3730,7 @@ function Builder:_layoutTopBar()
 	end
 	if self._hubNameBox and not isDead(self._hubNameBox) then
 		self._hubNameBox.Position = UDim2.new(0, nameLeft, 0, 9)
-		self._hubNameBox.Size = UDim2.new(1, -(nameLeft + x + 6), 0, 34)
+		self._hubNameBox.Size = UDim2.new(1, -(nameLeft + x), 0, 34)
 	end
 end
 
@@ -3890,6 +3889,7 @@ function Builder:_build()
 	closeBtn.Activated:Connect(function()
 		self:Close()
 	end)
+	self._closeBtn = closeBtn
 
 	------------------------------------------------------------
 	-- Palette (left)
@@ -4589,6 +4589,8 @@ function Builder:_openExportPanel()
 		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		ScrollBarThickness = 3,
 		ZIndex = 52,
 		Parent = content,
@@ -4660,6 +4662,8 @@ function Builder:_openExportPanel()
 		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		ScrollBarThickness = 3,
 		ZIndex = 52,
 		Parent = content,

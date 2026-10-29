@@ -1128,20 +1128,46 @@ check("builder hidden palette is not a delete zone", function()
 	B:Close()
 end)
 
-check("builder compact top bar fits a 360px phone", function()
+check("builder top bar fits without overlaps at every tested width", function()
 	B:NewProject()
 	B.SplashDuration = 0
 	B:Close()
 	B:Open()
 	local cam = env.workspace.CurrentCamera
+	local btns = {
+		B._closeBtn, B._newBtn, B._exportBtn, B._previewBtn,
+		B._addTabBtn, B._propsBtn, B._blocksBtn,
+	}
+	for _, w in { 360, 390, 844, 900 } do
+		cam.ViewportSize = mock.Vector2(w, 800)
+		local spans = {}
+		for _, btn in btns do
+			if btn.Visible == true then
+				-- AnchorPoint (1, 0): right edge = width + Position.X.Offset
+				local right = w + btn.Position.X.Offset
+				local bw = btn.Size.X.Offset
+				table.insert(spans, { left = right - bw, right = right, btn = btn })
+			end
+		end
+		assert(#spans >= 5, "expected several visible buttons at width " .. w)
+		table.sort(spans, function(a, b)
+			return a.left < b.left
+		end)
+		for i, span in spans do
+			assert(span.left >= 0 and span.right <= w, "button out of screen at width " .. w)
+			if i > 1 then
+				assert(span.left >= spans[i - 1].right, "buttons overlap at width " .. w)
+			end
+		end
+		-- the name box must not run under the leftmost button
+		local nameLeft = B._hubNameBox.Position.X.Offset
+		local nameRight = nameLeft + (w + B._hubNameBox.Size.X.Offset)
+		assert(nameRight <= spans[1].left, "name box overlaps buttons at width " .. w)
+		assert(spans[1].left > 40, "name box should keep a usable width at " .. w)
+	end
 	cam.ViewportSize = mock.Vector2(360, 800)
 	assert(B._newBtn.Visible == false, "New should move into the export panel in compact")
 	assert(B._addTabBtn.Visible == false, "+ Tab lives on the canvas in compact")
-	-- rightmost button sits inside the screen
-	assert(-B._blocksBtn.Position.X.Offset <= 360, "top bar buttons must fit a 360px screen")
-	-- the name box keeps a usable width
-	local nameW = 360 + B._hubNameBox.Size.X.Offset - B._hubNameBox.Position.X.Offset
-	assert(nameW > 40, "hub name box should keep a usable width, got " .. tostring(nameW))
 	cam.ViewportSize = mock.Vector2(1920, 1080)
 	assert(B._newBtn.Visible == true, "New returns on desktop")
 	B:Close()
@@ -1160,6 +1186,55 @@ check("builder new project is reachable from the export panel", function()
 	assert(#B._project.tabs[1].nodes == 2, "New project should reset to the default project")
 	assert(B._exportOverlay.Visible == false, "export panel should close after New")
 	B:Close()
+end)
+
+
+check("builder tap opens props even with the palette open", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local cam = env.workspace.CurrentCamera
+	cam.ViewportSize = mock.Vector2(390, 844)
+	B._blocksBtn.Activated:Fire()
+	assert(B._palette.Visible == true, "palette drawer should be open")
+	local touch = mock.Enum.UserInputType.Touch
+	local UIS = mock.UIS()
+	local bf = B._columns[1].blockFrames[1]
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 300, 150))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 300, 150))
+	assert(B._propList.Visible == true, "tapping a block must open props even with the palette open")
+	assert(B._palette.Visible == false, "the palette drawer should close so the block stays visible")
+	cam.ViewportSize = mock.Vector2(1920, 1080)
+	B:Close()
+end)
+
+check("builder coregui snapshot skips unreadable features", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	local starterGui = env.game:GetService("StarterGui")
+	table.clear(starterGui._coreGuiState)
+	starterGui:SetCoreGuiEnabled(mock.Enum.CoreGuiType.Chat, false) -- initially disabled
+	local orig = starterGui.GetCoreGuiEnabled
+	rawset(starterGui, "GetCoreGuiEnabled", function(self, t)
+		if t == mock.Enum.CoreGuiType.EmotesMenu then
+			error("not readable")
+		end
+		return orig(self, t)
+	end)
+	B:Open()
+	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.EmotesMenu] == nil,
+		"unreadable features must not be touched")
+	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.Chat] == false, "chat hidden while open")
+	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.PlayerList] == false, "playerlist hidden while open")
+	B:Close()
+	rawset(starterGui, "GetCoreGuiEnabled", orig)
+	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.Chat] == false,
+		"chat must stay hidden (it was hidden before)")
+	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.PlayerList] == true,
+		"playerlist must be restored")
+	assert(starterGui._coreGuiState[mock.Enum.CoreGuiType.EmotesMenu] == nil, "still untouched")
 end)
 
 ----------------------------------------------------------------

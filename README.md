@@ -14,7 +14,7 @@ build/         -- obfuscation pipeline (repeatable build script)
 
 ## Status: prototype, logic-tested only
 
-- The code compiles under the Luau compiler, and a 64-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
+- The code compiles under the Luau compiler, and a 66-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
 - **Visual rendering, dragging, touch handling, splash animation, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
 
 ## Quick start
