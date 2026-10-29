@@ -1051,6 +1051,117 @@ check("builder canvas tap selects the exact block", function()
 	B:Close()
 end)
 
+
+check("builder coregui restore keeps pre-existing state", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	local starterGui = env.game:GetService("StarterGui")
+	-- the user already had chat hidden before opening the builder
+	starterGui:SetCoreGuiEnabled(mock.Enum.CoreGuiType.Chat, false)
+	B:Open()
+	B:Close()
+	local chatBack, othersBack = nil, true
+	for _, v in starterGui._coreGuiState do
+		-- nothing else should have been touched
+	end
+	chatBack = starterGui._coreGuiState[mock.Enum.CoreGuiType.Chat]
+	assert(chatBack == false, "pre-hidden chat should stay hidden after close")
+	local n = 0
+	for _, v in starterGui._coreGuiState do
+		n += 1
+	end
+	assert(n >= 2, "suppress/restore should have touched several coregui types")
+end)
+
+check("builder compact drawers overlay and are exclusive", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local cam = env.workspace.CurrentCamera
+	cam.ViewportSize = mock.Vector2(390, 844)
+	assert(B._compact == true)
+	assert(B._palette.Visible == false and B._propList.Visible == false)
+	-- open the palette drawer: canvas stays full width, drawer overlays it
+	B._blocksBtn.Activated:Fire()
+	assert(B._palette.Visible == true, "palette toggle should open the drawer")
+	assert(B._palette.ZIndex == 6, "drawer should overlay the canvas")
+	assert(B._canvas.Size.X.Offset == 0, "canvas must stay full width with a drawer open")
+	-- opening the properties drawer closes the palette drawer (one at a time)
+	B._propsBtn.Activated:Fire()
+	assert(B._propList.Visible == true, "props toggle should open the drawer")
+	assert(B._palette.Visible == false, "only one drawer should be open on a phone")
+	assert(B._canvas.Size.X.Offset == 0, "canvas must stay full width with props open")
+	cam.ViewportSize = mock.Vector2(1920, 1080)
+	B:Close()
+end)
+
+check("builder hidden palette is not a delete zone", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local cam = env.workspace.CurrentCamera
+	cam.ViewportSize = mock.Vector2(390, 844) -- compact: palette hidden
+	local tab1 = B._project.tabs[1]
+	local node = tab1.nodes[1]
+	local touch = mock.Enum.UserInputType.Touch
+	local UIS = mock.UIS()
+	-- set up hit geometry: column 1 covers the left of the fullscreen canvas
+	local col1 = B._columns[1]
+	col1.frame.AbsolutePosition = mock.Vector2(0, 58)
+	col1.frame.AbsoluteSize = mock.Vector2(390, 500)
+	for i, bf in col1.blockFrames do
+		bf.AbsolutePosition = mock.Vector2(8, 96 + (i - 1) * 48)
+		bf.AbsoluteSize = mock.Vector2(374, 42)
+	end
+	B._palette.AbsolutePosition = mock.Vector2(0, 58)
+	B._palette.AbsoluteSize = mock.Vector2(150, 442)
+	-- drop a block over where the hidden palette is: must NOT delete
+	local bf = col1.blockFrames[1]
+	bf.InputBegan:Fire(mock.makeInput(touch, nil, 250, 100))
+	UIS.InputChanged:Fire(mock.makeInput(touch, nil, 60, 300))
+	UIS.InputEnded:Fire(mock.makeInput(touch, nil, 60, 300))
+	assert(table.find(tab1.nodes, node) ~= nil, "dropping on a hidden palette must not delete")
+	cam.ViewportSize = mock.Vector2(1920, 1080)
+	B:Close()
+end)
+
+check("builder compact top bar fits a 360px phone", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local cam = env.workspace.CurrentCamera
+	cam.ViewportSize = mock.Vector2(360, 800)
+	assert(B._newBtn.Visible == false, "New should move into the export panel in compact")
+	assert(B._addTabBtn.Visible == false, "+ Tab lives on the canvas in compact")
+	-- rightmost button sits inside the screen
+	assert(-B._blocksBtn.Position.X.Offset <= 360, "top bar buttons must fit a 360px screen")
+	-- the name box keeps a usable width
+	local nameW = 360 + B._hubNameBox.Size.X.Offset - B._hubNameBox.Position.X.Offset
+	assert(nameW > 40, "hub name box should keep a usable width, got " .. tostring(nameW))
+	cam.ViewportSize = mock.Vector2(1920, 1080)
+	assert(B._newBtn.Visible == true, "New returns on desktop")
+	B:Close()
+end)
+
+check("builder new project is reachable from the export panel", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	B:AddBlock("Button")
+	assert(#B._project.tabs[1].nodes == 3)
+	B:_openExportPanel()
+	assert(B._exportNewBtn ~= nil, "export panel should have a New project button")
+	B._exportNewBtn.Activated:Fire()
+	assert(#B._project.tabs[1].nodes == 2, "New project should reset to the default project")
+	assert(B._exportOverlay.Visible == false, "export panel should close after New")
+	B:Close()
+end)
+
 ----------------------------------------------------------------
 -- Summary
 ----------------------------------------------------------------

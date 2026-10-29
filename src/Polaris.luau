@@ -2413,7 +2413,7 @@ Polaris.Builder = Builder
 -- public knobs
 Builder.SplashDuration = 1.6 -- seconds; 0 disables the splash
 Builder.PolarisURL = "https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"
-Builder.MinWorkspaceWidth = 760 -- below this the side panels become toggleable drawers
+Builder.MinWorkspaceWidth = 900 -- below this the side panels become toggleable drawers
 Builder.SuppressCoreGui = true -- best-effort: hide the hideable CoreGui while the editor is open
 
 local COREGUI_TYPES = {
@@ -2424,19 +2424,42 @@ function Builder:_suppressCoreGui()
 	if self._coreHidden ~= nil or Builder.SuppressCoreGui ~= true then
 		return
 	end
-	local starterGui = game:GetService("StarterGui")
-	if type(starterGui) ~= "table" or type(starterGui.SetCoreGuiEnabled) ~= "function" then
+	local okSG, starterGui = pcall(function()
+		return game:GetService("StarterGui")
+	end)
+	if not okSG or starterGui == nil then
 		return
 	end
-	local hidden = {}
+	local okFn, setEnabled = pcall(function()
+		return starterGui.SetCoreGuiEnabled
+	end)
+	local okGet, getEnabled = pcall(function()
+		return starterGui.GetCoreGuiEnabled
+	end)
+	if not okFn or type(setEnabled) ~= "function" then
+		return
+	end
+	local hidden = {} -- { { type = ..., enabled = original } }
 	for _, name in COREGUI_TYPES do
-		local t = Enum.CoreGuiType[name]
-		if t ~= nil then
-			local ok = pcall(function()
-				starterGui:SetCoreGuiEnabled(t, false)
+		local okEnum, t = pcall(function()
+			return Enum.CoreGuiType[name]
+		end)
+		if okEnum and t ~= nil then
+			-- snapshot the current state so Close restores exactly what was there before
+			local wasEnabled = true
+			if okGet and type(getEnabled) == "function" then
+				local okVal, val = pcall(function()
+					return getEnabled(starterGui, t)
+				end)
+				if okVal and type(val) == "boolean" then
+					wasEnabled = val
+				end
+			end
+			local okSet = pcall(function()
+				setEnabled(starterGui, t, false)
 			end)
-			if ok then
-				hidden[#hidden + 1] = t
+			if okSet then
+				hidden[#hidden + 1] = { type = t, enabled = wasEnabled }
 			end
 		end
 	end
@@ -2449,13 +2472,21 @@ function Builder:_restoreCoreGui()
 	if hidden == nil or #hidden == 0 then
 		return
 	end
-	local starterGui = game:GetService("StarterGui")
-	if type(starterGui) ~= "table" or type(starterGui.SetCoreGuiEnabled) ~= "function" then
+	local okSG, starterGui = pcall(function()
+		return game:GetService("StarterGui")
+	end)
+	if not okSG or starterGui == nil then
 		return
 	end
-	for _, t in hidden do
+	local okFn, setEnabled = pcall(function()
+		return starterGui.SetCoreGuiEnabled
+	end)
+	if not okFn or type(setEnabled) ~= "function" then
+		return
+	end
+	for _, entry in hidden do
 		pcall(function()
-			starterGui:SetCoreGuiEnabled(t, true)
+			setEnabled(starterGui, entry.type, entry.enabled)
 		end)
 	end
 end
@@ -3322,9 +3353,32 @@ end
 
 local DRAG_THRESHOLD = 6
 
-function Builder:IsOpen()
-	return self._gui ~= nil and not self._gui._destroyed
+-- Instance lifecycle tracking that works on real Roblox Instances
+-- (which have no _destroyed flag) and in the mocked test environment.
+local DeadInstances = setmetatable({}, { __mode = "k" })
+local function killInstance(inst)
+	if inst == nil then
+		return
+	end
+	DeadInstances[inst] = true
+	-- destroying an Instance destroys its descendants - mark them dead too
+	pcall(function()
+		for _, child in inst:GetChildren() do
+			killInstance(child)
+		end
+	end)
+	pcall(function()
+		inst:Destroy()
+	end)
 end
+local function isDead(inst)
+	return inst == nil or DeadInstances[inst] == true
+end
+
+function Builder:IsOpen()
+	return self._gui ~= nil and not isDead(self._gui)
+end
+
 
 function Builder:Close()
 	if self._splashGui then
@@ -3344,9 +3398,7 @@ function Builder:Close()
 	end
 	self._drag = nil
 	if self._ghost then
-		pcall(function()
-			self._ghost:Destroy()
-		end)
+		killInstance(self._ghost)
 		self._ghost = nil
 	end
 	self:ClosePreview()
@@ -3357,10 +3409,18 @@ function Builder:Close()
 		end)
 		self._viewportConn = nil
 	end
-	if self._gui and not self._gui._destroyed then
-		self._gui:Destroy()
+	if not isDead(self._gui) then
+		killInstance(self._gui)
 	end
 	self._gui = nil
+	-- the overlay and its labels died with the gui
+	self._exportOverlay = nil
+	self._codeLabel = nil
+	self._jsonLabel = nil
+	self._exportNewBtn = nil
+	-- drawer state does not carry across sessions
+	self._paletteOpen = nil
+	self._propsOpen = nil
 end
 
 function Builder:Open()
@@ -3517,8 +3577,7 @@ function Builder:_onDragEnd(input)
 			self._selected = drag.selection
 			if self._compact and self._propsOpen ~= true then
 				-- on a phone, tapping a block should reveal the properties drawer
-				self._propsOpen = true
-				self:_applyResponsive()
+				self:_setDrawers(self._paletteOpen, true)
 			end
 			self:_refreshCanvas()
 			self:_refreshProperties()
@@ -3529,7 +3588,8 @@ function Builder:_onDragEnd(input)
 	local x = input.Position.X
 	local y = input.Position.Y
 	-- dropping a block back onto the palette deletes it (Scratch-style)
-	if self._palette and self:_pointIn(self._palette, x, y) then
+	-- only when the palette is actually visible - a hidden drawer must not be a delete zone
+	if self._palette and not isDead(self._palette) and self._palette.Visible == true and self:_pointIn(self._palette, x, y) then
 		if drag.data and drag.data.node then
 			self:Select(drag.data.tab, drag.data.node)
 			self:DeleteSelected()
@@ -3583,6 +3643,16 @@ end
 -- Fullscreen editor
 ----------------------------------------------------------------
 
+function Builder:_setDrawers(paletteOpen, propsOpen)
+	if self._compact and paletteOpen and propsOpen then
+		-- on a phone only one drawer shows at a time
+		propsOpen = false
+	end
+	self._paletteOpen = paletteOpen
+	self._propsOpen = propsOpen
+	self:_applyResponsive()
+end
+
 function Builder:_applyResponsive()
 	local width = 0
 	pcall(function()
@@ -3604,56 +3674,64 @@ function Builder:_applyResponsive()
 	local paletteOn = panelVisible(self._paletteOpen)
 	local propsOn = panelVisible(self._propsOpen)
 
-	if self._palette and not self._palette._destroyed then
+	if self._palette and not isDead(self._palette) then
 		self._palette.Visible = paletteOn
 		self._palette.ZIndex = paletteOn and compact and 6 or 1
 	end
-	if self._propList and not self._propList._destroyed then
+	if self._propList and not isDead(self._propList) then
 		self._propList.Visible = propsOn
 		self._propList.ZIndex = propsOn and compact and 6 or 1
 	end
-	if self._canvas and not self._canvas._destroyed then
-		local left = paletteOn and 158 or 0
-		local right = propsOn and 240 or 0
+	if self._canvas and not isDead(self._canvas) then
+		-- in compact mode the panels overlay the canvas, which always spans the full width
+		local left, right = 0, 0
+		if not compact then
+			left = paletteOn and 158 or 0
+			right = propsOn and 240 or 0
+		end
 		self._canvas.Position = UDim2.new(0, left, 0, 58)
 		self._canvas.Size = UDim2.new(1, -(left + right), 1, -58)
 	end
+	self:_layoutTopBar()
+end
 
-	-- compact top bar: shrink labels, hide the controls that live elsewhere
-	local function setBtn(btn, text, w)
-		if btn and not btn._destroyed then
-			btn.Text = text
-			btn.Size = UDim2.new(0, w, 0, 34)
+function Builder:_layoutTopBar()
+	local compact = self._compact == true
+	-- right-aligned buttons: { button, text, wideWidth, compactWidth (0 = hidden) }
+	local specs = {
+		{ self._closeBtn, "X", 34, 34 },
+		{ self._newBtn, "New", 64, 0 },
+		{ self._exportBtn, "Export", 92, 46 },
+		{ self._previewBtn, "Preview", 92, 54 },
+		{ self._addTabBtn, "+ Tab", 80, 0 }, -- the canvas has its own + Tab button
+		{ self._propsBtn, "\226\154\153", 44, 44 },
+		{ self._blocksBtn, "\226\151\167", 44, 44 },
+	}
+	local x = 10 -- right padding
+	for _, spec in specs do
+		local btn, text, wideW, compW = spec[1], spec[2], spec[3], spec[4]
+		local w = compact and compW or wideW
+		if btn and not isDead(btn) then
+			if w <= 0 then
+				btn.Visible = false
+			else
+				btn.Visible = true
+				btn.Text = text
+				btn.Size = UDim2.new(0, w, 0, 34)
+				x = x + w
+				btn.AnchorPoint = Vector2.new(1, 0)
+				btn.Position = UDim2.new(1, -x, 0, 9)
+				x = x + 6
+			end
 		end
 	end
-	if compact then
-		if self._logoLabel and not self._logoLabel._destroyed then
-			self._logoLabel.Visible = false
-		end
-		if self._hubNameBox and not self._hubNameBox._destroyed then
-			self._hubNameBox.Position = UDim2.new(0, 8, 0, 9)
-			self._hubNameBox.Size = UDim2.new(0, 74, 0, 34)
-		end
-		if self._addTabBtn then
-			self._addTabBtn.Visible = false -- the canvas has its own + Tab button
-		end
-		setBtn(self._previewBtn, "View", 54)
-		setBtn(self._exportBtn, "Exp", 46)
-		setBtn(self._newBtn, "New", 46)
-	else
-		if self._logoLabel and not self._logoLabel._destroyed then
-			self._logoLabel.Visible = true
-		end
-		if self._hubNameBox and not self._hubNameBox._destroyed then
-			self._hubNameBox.Position = UDim2.new(0, 190, 0, 9)
-			self._hubNameBox.Size = UDim2.new(0, 180, 0, 34)
-		end
-		if self._addTabBtn then
-			self._addTabBtn.Visible = true
-		end
-		setBtn(self._previewBtn, "Preview", 92)
-		setBtn(self._exportBtn, "Export", 92)
-		setBtn(self._newBtn, "New", 64)
+	local nameLeft = compact and 8 or 190
+	if self._logoLabel and not isDead(self._logoLabel) then
+		self._logoLabel.Visible = not compact
+	end
+	if self._hubNameBox and not isDead(self._hubNameBox) then
+		self._hubNameBox.Position = UDim2.new(0, nameLeft, 0, 9)
+		self._hubNameBox.Size = UDim2.new(1, -(nameLeft + x + 6), 0, 34)
 	end
 end
 
@@ -3688,17 +3766,6 @@ function Builder:_build()
 		BackgroundColor3 = Color3.fromRGB(21, 24, 34),
 		BorderSizePixel = 0,
 		Parent = root,
-	})
-	Create("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		HorizontalAlignment = Enum.HorizontalAlignment.Right,
-		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Padding = UDim.new(0, 6),
-		Parent = topBar,
-	})
-	Create("UIPadding", {
-		PaddingRight = UDim.new(0, 10),
-		Parent = topBar,
 	})
 
 	local logoLabel = Create("TextLabel", {
@@ -3766,22 +3833,33 @@ function Builder:_build()
 	local blocksBtn = topButton("\226\151\167", 44) -- block palette toggle
 	blocksBtn.Activated:Connect(function()
 		if compactTopState() then
-			self._paletteOpen = self._paletteOpen ~= true
+			local open = self._paletteOpen == true
+			if open then
+				-- nil = "auto": hidden on phones, back on desktop
+				self:_setDrawers(nil, self._propsOpen)
+			else
+				self:_setDrawers(true, nil)
+			end
 		else
-			self._paletteOpen = self._paletteOpen == false
+			local open = self._paletteOpen ~= false
+			self:_setDrawers(not open, self._propsOpen)
 		end
-		self:_applyResponsive()
 	end)
 	self._blocksBtn = blocksBtn
 
 	local propsBtn = topButton("\226\154\153", 44) -- properties toggle
 	propsBtn.Activated:Connect(function()
 		if compactTopState() then
-			self._propsOpen = self._propsOpen ~= true
+			local open = self._propsOpen == true
+			if open then
+				self:_setDrawers(self._paletteOpen, nil)
+			else
+				self:_setDrawers(nil, true)
+			end
 		else
-			self._propsOpen = self._propsOpen == false
+			local open = self._propsOpen ~= false
+			self:_setDrawers(self._paletteOpen, not open)
 		end
-		self:_applyResponsive()
 	end)
 	self._propsBtn = propsBtn
 
@@ -3883,12 +3961,11 @@ function Builder:_build()
 						table.insert(tab.nodes, node)
 						self._selected = { tab = tab, node = node }
 					end
-					if self._compact and self._paletteOpen == true then
+					if self._compact then
 						-- on a phone, close the palette drawer so the new block is visible
-						self._paletteOpen = false
+						self:_setDrawers(false, self._propsOpen)
 					end
 					self:_refreshAll()
-					self:_applyResponsive()
 				end,
 			}
 		end)
@@ -3964,13 +4041,11 @@ end
 ----------------------------------------------------------------
 
 function Builder:_refreshCanvas()
-	if not self._canvas or self._canvas._destroyed then
+	if not self._canvas or isDead(self._canvas) then
 		return
 	end
 	for _, col in self._columns do
-		if not col.frame._destroyed then
-			col.frame:Destroy()
-		end
+		killInstance(col.frame)
 	end
 	self._columns = {}
 
@@ -4244,13 +4319,11 @@ local function propButton(b, label, color, onClick)
 end
 
 function Builder:_refreshProperties()
-	if not self._propList or self._propList._destroyed then
+	if not self._propList or isDead(self._propList) then
 		return
 	end
 	for _, row in self._propRows do
-		if not row._destroyed then
-			row:Destroy()
-		end
+		killInstance(row)
 	end
 	self._propRows = {}
 
@@ -4286,7 +4359,7 @@ function Builder:_refreshProperties()
 		propHeader(b, "Window")
 		propTextbox(b, "Hub name", proj.window.Name, function(text)
 			proj.window.Name = tostring(text)
-			if b._hubNameBox and not b._hubNameBox._destroyed then
+			if b._hubNameBox and not isDead(b._hubNameBox) then
 				b._hubNameBox.Text = tostring(text)
 			end
 			b:_refreshExport()
@@ -4433,7 +4506,7 @@ end
 ----------------------------------------------------------------
 
 function Builder:_openExportPanel()
-	if self._exportOverlay and not self._exportOverlay._destroyed then
+	if self._exportOverlay and not isDead(self._exportOverlay) then
 		self._exportOverlay.Visible = true
 		self:_refreshExport()
 		return
@@ -4496,15 +4569,29 @@ function Builder:_openExportPanel()
 		overlay.Visible = false
 	end)
 
+	-- everything below the header scrolls, so the panel works at any size
+	local content = Create("ScrollingFrame", {
+		Name = "Content",
+		Position = UDim2.new(0, 14, 0, 38),
+		Size = UDim2.new(1, -28, 1, -50),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 3,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Create("UIListLayout", { Padding = UDim.new(0, 8), Parent = content })
+
 	local codeScroll = Create("ScrollingFrame", {
-		Position = UDim2.new(0, 14, 0, 40),
-		Size = UDim2.new(1, -28, 0, 180),
+		Size = UDim2.new(1, 0, 0, 170),
 		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
 		ScrollBarThickness = 3,
 		ZIndex = 52,
-		Parent = panel,
+		Parent = content,
 	})
 	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = codeScroll })
 	self._codeLabel = Create("TextLabel", {
@@ -4522,10 +4609,9 @@ function Builder:_openExportPanel()
 		Parent = codeScroll,
 	})
 
-	local function panelButton(text, yPos, color)
+	local function panelButton(text, color, parent)
 		local btn = Create("TextButton", {
-			Position = UDim2.new(0, 14, 0, yPos),
-			Size = UDim2.new(0, 150, 0, 30),
+			Size = UDim2.new(1, 0, 0, 30),
 			BackgroundColor3 = color or Color3.fromRGB(38, 43, 62),
 			Text = text,
 			TextColor3 = Color3.fromRGB(255, 255, 255),
@@ -4533,13 +4619,20 @@ function Builder:_openExportPanel()
 			TextSize = 12,
 			AutoButtonColor = true,
 			ZIndex = 52,
-			Parent = panel,
+			Parent = parent or content,
 		})
 		Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = btn })
 		return btn
 	end
 
-	local copyBtn = panelButton("Copy code", 228, Color3.fromRGB(66, 133, 244))
+	local btnRow = Create("Frame", {
+		Size = UDim2.new(1, 0, 0, 32),
+		BackgroundTransparency = 1,
+		ZIndex = 52,
+		Parent = content,
+	})
+	local copyBtn = panelButton("Copy code", Color3.fromRGB(66, 133, 244), btnRow)
+	copyBtn.Size = UDim2.new(0.5, -4, 0, 30)
 	copyBtn.Activated:Connect(function()
 		local code = self:Generate()
 		if clipboardAvailable() and copyText(code) then
@@ -4548,8 +4641,9 @@ function Builder:_openExportPanel()
 			Polaris:Notify({ Title = "Polaris Builder", Content = "Clipboard not available - the code is shown above", Type = "warning", Duration = 5 })
 		end
 	end)
-	local saveBtn = panelButton("Save .luau file", 228)
-	saveBtn.Position = UDim2.new(0, 174, 0, 228)
+	local saveBtn = panelButton("Save .luau file", nil, btnRow)
+	saveBtn.Position = UDim2.new(0.5, 4, 0, 1)
+	saveBtn.Size = UDim2.new(0.5, -4, 0, 30)
 	saveBtn.Activated:Connect(function()
 		local code = self:Generate()
 		local name = slugify(self._project.window.Name)
@@ -4562,14 +4656,13 @@ function Builder:_openExportPanel()
 	end)
 
 	local jsonScroll = Create("ScrollingFrame", {
-		Position = UDim2.new(0, 14, 0, 268),
-		Size = UDim2.new(1, -28, 0, 90),
+		Size = UDim2.new(1, 0, 0, 90),
 		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
 		ScrollBarThickness = 3,
 		ZIndex = 52,
-		Parent = panel,
+		Parent = content,
 	})
 	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = jsonScroll })
 	self._jsonLabel = Create("TextLabel", {
@@ -4587,7 +4680,7 @@ function Builder:_openExportPanel()
 		Parent = jsonScroll,
 	})
 
-	local copyJsonBtn = panelButton("Copy project JSON", 366, Color3.fromRGB(120, 130, 255))
+	local copyJsonBtn = panelButton("Copy project JSON", Color3.fromRGB(120, 130, 255))
 	copyJsonBtn.Activated:Connect(function()
 		local json = self:ExportJSON()
 		if clipboardAvailable() and copyText(json) then
@@ -4598,8 +4691,7 @@ function Builder:_openExportPanel()
 	end)
 
 	local importBox = Create("TextBox", {
-		Position = UDim2.new(0, 14, 0, 404),
-		Size = UDim2.new(1, -28, 0, 34),
+		Size = UDim2.new(1, 0, 0, 34),
 		BackgroundColor3 = Color3.fromRGB(16, 18, 26),
 		Text = "",
 		PlaceholderText = "Paste project JSON here, then press Load",
@@ -4610,11 +4702,21 @@ function Builder:_openExportPanel()
 		ClearTextOnFocus = false,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 52,
-		Parent = panel,
+		Parent = content,
 	})
 	Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = importBox })
-	local loadBtn = panelButton("Load JSON", 444, Color3.fromRGB(76, 175, 110))
-	loadBtn.Size = UDim2.new(0, 150, 0, 28)
+	local loadBtn = panelButton("Load JSON", Color3.fromRGB(76, 175, 110))
+	loadBtn.Size = UDim2.new(1, 0, 0, 28)
+
+	-- New project lives here because the compact top bar has no room for it
+	local newBtn = panelButton("New project", Color3.fromRGB(225, 90, 90))
+	self._exportNewBtn = newBtn
+	newBtn.Activated:Connect(function()
+		self:NewProject()
+		self:_refreshAll()
+		overlay.Visible = false
+		Polaris:Notify({ Title = "Polaris Builder", Content = "Started a new project", Duration = 3 })
+	end)
 	loadBtn.Activated:Connect(function()
 		local ok, err = pcall(function()
 			self:ImportJSON(tostring(importBox.Text))
@@ -4635,16 +4737,16 @@ end
 ----------------------------------------------------------------
 
 function Builder:_refreshExport()
-	if self._codeLabel and not self._codeLabel._destroyed then
+	if self._codeLabel and not isDead(self._codeLabel) then
 		self._codeLabel.Text = self:Generate()
 	end
-	if self._jsonLabel and not self._jsonLabel._destroyed then
+	if self._jsonLabel and not isDead(self._jsonLabel) then
 		self._jsonLabel.Text = self:ExportJSON()
 	end
 end
 
 function Builder:_refreshAll()
-	if self._hubNameBox and not self._hubNameBox._destroyed then
+	if self._hubNameBox and not isDead(self._hubNameBox) then
 		self._hubNameBox.Text = tostring(self._project.window.Name)
 	end
 	self:_refreshCanvas()

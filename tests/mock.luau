@@ -368,6 +368,13 @@ services.StarterGui._coreGuiState = {}
 function services.StarterGui:SetCoreGuiEnabled(coreGuiType, enabled)
 	self._coreGuiState[coreGuiType] = (enabled and true) or false
 end
+function services.StarterGui:GetCoreGuiEnabled(coreGuiType)
+	local v = self._coreGuiState[coreGuiType]
+	if v == nil then
+		return true
+	end
+	return v
+end
 
 ----------------------------------------------------------------
 -- Env assembly

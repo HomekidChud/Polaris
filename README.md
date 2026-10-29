@@ -14,7 +14,7 @@ build/         -- obfuscation pipeline (repeatable build script)
 
 ## Status: prototype, logic-tested only
 
-- The code compiles under the Luau compiler, and a 59-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
+- The code compiles under the Luau compiler, and a 64-case logic suite passes under [Lune](https://lune.dev) with a mocked Roblox environment — against **both** the readable source and the exact obfuscated artifact that is published here (window/element behavior, the builder data model, generated-code execution, JSON round-trips, config persistence, cleanup, theming, search).
 - **Visual rendering, dragging, touch handling, splash animation, and layout have NOT been verified in Roblox.** Test in Studio before shipping (checklist below).
 
 ## Quick start
@@ -145,7 +145,7 @@ The editor is one fullscreen canvas with `IgnoreGuiInset` (it covers the whole v
 - **Right properties panel** — everything about the selected block. Your edits save when you reselect (not on every keystroke).
 - **Top bar** — hub name (live), palette/properties toggles, `+ Tab`, `Preview`, `Export`, `New`, `X`.
 
-On screens narrower than `Builder.MinWorkspaceWidth` (760px by default — phones), the palette and properties collapse into toggleable drawers (the ◧ and ⚙ top-bar buttons) so the canvas gets the whole screen; tapping a block opens the properties drawer automatically. The editor also covers the Roblox topbar via `IgnoreGuiInset` and best-effort hides the hideable CoreGui (chat, backpack, leaderboard, player list, emotes, health) while it's open, restoring it on close — scripts can't remove the topbar buttons themselves.
+On screens narrower than `Builder.MinWorkspaceWidth` (900px by default — phones), the palette and properties collapse into toggleable drawers (the ◧ and ⚙ top-bar buttons) that overlay the canvas, which keeps the full screen width; only one drawer shows at a time, tapping a block opens the properties drawer automatically, and the compact top bar moves New into the export panel (which scrolls, so it works at any size). The editor also covers the Roblox topbar via `IgnoreGuiInset` and best-effort hides the hideable CoreGui (chat, backpack, leaderboard, player list, emotes, health) while it's open, restoring it on close — scripts can't remove the topbar buttons themselves.
 
 Everything is designed for touch as well as mouse (drag with a threshold and a floating ghost block, big hit targets, tap-to-add), but none of it has been verified on a real device yet — test in Studio's device emulator before shipping.
 
