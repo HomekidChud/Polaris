@@ -27,9 +27,7 @@ python3 build/prepare_lua51.py src/Polaris.luau build/intermediate.lua
 
 echo "-- verifying readable source"
 "$LUNE_BIN" run tests/test.luau src/Polaris.luau | tail -1
-echo "-- verifying obfuscated artifact"
+echo "-- installing obfuscated artifact at the repo root and verifying it"
 cp build/Polaris.obfuscated.lua Polaris.luau
 "$LUNE_BIN" run tests/test.luau | tail -1
-echo "-- restoring readable source at root for now (git tracks src/)"
-cp src/Polaris.luau Polaris.luau
-echo "build ok - obfuscated artifact at build/Polaris.obfuscated.lua"
+echo "build ok - the published root Polaris.luau is the obfuscated build"

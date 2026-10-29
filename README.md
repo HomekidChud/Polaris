@@ -87,7 +87,7 @@ Design goals (exercised by the test suite): no `Init()` requirement; `:Get()`, `
 
 ## About the obfuscated build
 
-The `Polaris.luau` at the repo root (the file the loadstrings fetch) is an obfuscated build of `src/Polaris.luau`. It is produced by `build/build.sh` — a deterministic pipeline that strips Luau-only syntax, then runs [Prometheus](https://github.com/prometheus-lua/Prometheus) with string encryption, constant-array shuffling, number mutation, and anti-tamper passes (the control-flow and VM passes are excluded because they emit `setfenv`-based code that cannot run in Roblox Luau). The full test suite is run against the exact published artifact before it is committed.
+The `Polaris.luau` at the repo root (the file the loadstrings fetch) is an obfuscated build of `src/Polaris.luau`. It is produced by `build/build.sh` — a repeatable pipeline that strips Luau-only syntax, then runs [Prometheus](https://github.com/prometheus-lua/Prometheus) with string encryption, constant-array shuffling, number mutation, and anti-tamper passes (the control-flow and VM passes are excluded: their output failed our Luau test suite for this input, and it also references `setfenv`/`getfenv`, which Roblox Luau does not provide). The full test suite is run against the exact published artifact before it is committed.
 
 This is distribution obfuscation — it deters casual reading and copy-paste editing of the loadstring target. It is not unbreakable protection, and the readable source and full history are public in `src/`.
 

@@ -2447,8 +2447,13 @@ local function quote(s)
 	s = tostring(s or "")
 	s = s:gsub("\\", "\\\\")
 	s = s:gsub("\n", "\\n")
+	s = s:gsub("\r", "\\r")
 	s = s:gsub("\t", "\\t")
 	s = s:gsub('"', '\\"')
+	-- escape any remaining control characters as \ddd
+	s = s:gsub("[%z\1-\8\11\12\14-\31]", function(c)
+		return ("\\%03d"):format(c:byte())
+	end)
 	return '"' .. s .. '"'
 end
 
@@ -2681,12 +2686,99 @@ function Builder:DuplicateSelected()
 	return copy
 end
 
+function Builder:DuplicateSelectedTab()
+	local sel = self._selected
+	if not sel or not sel.tab then
+		return nil
+	end
+	local proj = self:_currentProject()
+	local i = indexOf(proj.tabs, sel.tab)
+	if not i then
+		return nil
+	end
+	local copy = deepCopy(sel.tab)
+	for _, node in copy.nodes do
+		if node.Flag and node.Flag ~= "" then
+			node.Flag = self:_autoFlag(node.Name or node.Flag)
+		end
+	end
+	table.insert(proj.tabs, i + 1, copy)
+	self._selected = { tab = copy, node = nil }
+	return copy
+end
+
 function Builder:Select(tab, node)
 	if tab == nil then
 		self._selected = nil
 	else
 		self._selected = { tab = tab, node = node }
 	end
+end
+
+----------------------------------------------------------------
+-- Project validation
+----------------------------------------------------------------
+
+function Builder:Validate()
+	local problems = {}
+	local function problem(msg)
+		table.insert(problems, msg)
+	end
+	local proj = self:_currentProject()
+	local seenFlags = {}
+	for ti, tab in proj.tabs do
+		if type(tab.Name) ~= "string" or tab.Name == "" then
+			problem(("Tab %d has no name"):format(ti))
+		end
+		for ni, node in tab.nodes do
+			local label = ("Tab %d block %d (%s)"):format(ti, ni, tostring(node.Kind))
+			if node.Kind == "Section" or node.Kind == "Button" or node.Kind == "Toggle"
+				or node.Kind == "Slider" or node.Kind == "Dropdown" or node.Kind == "ColorPicker"
+				or node.Kind == "Keybind" or node.Kind == "Textbox" then
+				if type(node.Name) ~= "string" or node.Name == "" then
+					problem(label .. " has no name")
+				end
+			end
+			if node.Kind == "Paragraph" and (type(node.Text) ~= "string" or node.Text == "") then
+				problem(label .. " has no text")
+			end
+			if node.Flag and node.Flag ~= "" then
+				if seenFlags[node.Flag] then
+					problem(label .. (" reuses flag '%s'"):format(tostring(node.Flag)))
+				end
+				seenFlags[node.Flag] = true
+			end
+			if node.Kind == "Slider" then
+				local min = tonumber(node.Min) or 0
+				local max = tonumber(node.Max) or 0
+				local inc = tonumber(node.Increment) or 1
+				if max <= min then
+					problem(label .. " slider Max must be greater than Min")
+				end
+				if inc <= 0 then
+					problem(label .. " slider step size must be positive")
+				end
+			end
+			if node.Kind == "Dropdown" then
+				if #splitOptions(node.Options) == 0 then
+					problem(label .. " dropdown has no options")
+				end
+			end
+		end
+	end
+	if #problems == 0 then
+		return true, nil
+	end
+	local shown = {}
+	for i = 1, math.min(#problems, 5) do
+		table.insert(shown, problems[i])
+	end
+	local extra = #problems - #shown
+	local msg = table.concat(shown, "; ")
+	if extra > 0 then
+		msg = msg .. (" (+%d more)"):format(extra)
+	end
+	return false, msg
 end
 
 ----------------------------------------------------------------
@@ -2731,12 +2823,28 @@ local function emitNode(varName, node, winName, L)
 		table.insert(L, "\tend,")
 		table.insert(L, "})")
 	elseif kind == "Slider" then
+		local sMin = tonumber(node.Min) or 0
+		local sMax = tonumber(node.Max) or (sMin + 100)
+		local sInc = tonumber(node.Increment) or 1
+		if sInc <= 0 then
+			sInc = 1
+		end
+		if sMax <= sMin then
+			sMax = sMin + sInc
+		end
+		local sDef = tonumber(node.Default) or sMin
+		if sDef < sMin then
+			sDef = sMin
+		end
+		if sDef > sMax then
+			sDef = sMax
+		end
 		table.insert(L, varName .. ":CreateSlider({")
 		table.insert(L, "\tName = " .. quote(node.Name) .. ",")
-		table.insert(L, "\tMin = " .. tostring(tonumber(node.Min) or 0) .. ",")
-		table.insert(L, "\tMax = " .. tostring(tonumber(node.Max) or 100) .. ",")
-		table.insert(L, "\tDefault = " .. tostring(tonumber(node.Default) or 0) .. ",")
-		table.insert(L, "\tIncrement = " .. tostring(tonumber(node.Increment) or 1) .. ",")
+		table.insert(L, "\tMin = " .. tostring(sMin) .. ",")
+		table.insert(L, "\tMax = " .. tostring(sMax) .. ",")
+		table.insert(L, "\tDefault = " .. tostring(sDef) .. ",")
+		table.insert(L, "\tIncrement = " .. tostring(sInc) .. ",")
 		if node.ValueName and node.ValueName ~= "" then
 			table.insert(L, "\tValueName = " .. quote(node.ValueName) .. ",")
 		end
@@ -2823,6 +2931,11 @@ function Builder:Generate()
 	local proj = self:_currentProject()
 	local L = {}
 
+	local valid, why = self:Validate()
+	if not valid then
+		table.insert(L, "-- WARNING: this project has problems that were auto-corrected below:")
+		table.insert(L, "-- " .. tostring(why))
+	end
 	table.insert(L, "-- Generated with Polaris Builder")
 	table.insert(L, "-- Polaris: https://github.com/HomekidChud/Polaris")
 	table.insert(L, "")
@@ -2948,6 +3061,16 @@ end
 function Builder:OpenPreview()
 	self:ClosePreview()
 	local proj = self:_currentProject()
+	local valid, why = self:Validate()
+	if not valid then
+		Polaris:Notify({
+			Title = "Preview failed",
+			Content = "Fix these first: " .. tostring(why),
+			Type = "error",
+			Duration = 7,
+		})
+		return nil
+	end
 	local cfg = {
 		Name = tostring(proj.window.Name) .. " (preview)",
 		ToggleKey = Enum.KeyCode.RightControl,
@@ -2957,13 +3080,25 @@ function Builder:OpenPreview()
 		cfg.Theme = proj.window.Theme
 	end
 	local win = Polaris:CreateWindow(cfg)
-	for _, tab in proj.tabs do
-		local t = win:CreateTab({ Name = tab.Name })
-		for _, node in tab.nodes do
-			self:_applyNode(t, node)
+	self._previewWindow = win -- registered before building so failures can clean it up
+	local ok, err = pcall(function()
+		for _, tab in proj.tabs do
+			local t = win:CreateTab({ Name = tab.Name })
+			for _, node in tab.nodes do
+				self:_applyNode(t, node)
+			end
 		end
+	end)
+	if not ok then
+		self:ClosePreview()
+		Polaris:Notify({
+			Title = "Preview failed",
+			Content = tostring(err),
+			Type = "error",
+			Duration = 7,
+		})
+		return nil
 	end
-	self._previewWindow = win
 	return win
 end
 
@@ -3059,17 +3194,30 @@ function Builder:_splash(duration)
 	Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bar })
 
 	-- animate
+	local function cancelled()
+		return self._splashGui ~= gui
+	end
+
 	safeTween(ring, duration * 0.9, { Size = UDim2.new(0, 240, 0, 240) })
 	safeTween(stroke, duration * 0.9, { Thickness = 8, Transparency = 1 })
 	safeTween(title, duration * 0.45, { TextTransparency = 0 })
 	task.wait(duration * 0.35)
+	if cancelled() then
+		return
+	end
 	safeTween(sub, duration * 0.3, { TextTransparency = 0.15 })
 	safeTween(bar, duration * 0.6, { Size = UDim2.new(1, 0, 1, 0) })
 	task.wait(duration * 0.6)
+	if cancelled() then
+		return
+	end
 	safeTween(dim, 0.25, { BackgroundTransparency = 1 })
 	safeTween(title, 0.25, { TextTransparency = 1 })
 	safeTween(sub, 0.25, { TextTransparency = 1 })
 	task.wait(0.25)
+	if cancelled() then
+		return
+	end
 
 	if self._splashGui == gui then
 		self._splashGui = nil
@@ -3155,6 +3303,16 @@ function Builder:_build()
 	})
 	self._window = win
 
+	-- if the editor window is destroyed (X button or Destroy), clean the preview up
+	local origDestroy = win.Destroy
+	win.Destroy = function(w)
+		if self._window == win then
+			self:ClosePreview()
+			self._window = nil
+		end
+		return origDestroy(w)
+	end
+
 	----------------------------------------------------------------
 	-- Build tab
 	----------------------------------------------------------------
@@ -3234,7 +3392,6 @@ function Builder:_build()
 
 	buildTab:CreateSection({ Name = "Structure" })
 	self._structTab = buildTab
-	self._structButtons = {}
 
 	----------------------------------------------------------------
 	-- Properties tab
@@ -3316,6 +3473,9 @@ function Builder:_build()
 			end
 		end,
 	})
+	expTab:CreateSection({ Name = "Project JSON output" })
+	self._elJsonOut = expTab:CreateParagraph({ Text = "" })
+	expTab:CreateSection({ Name = "Import project JSON" })
 	self._elImport = expTab:CreateTextbox({
 		Name = "Paste project JSON here",
 		Default = "",
@@ -3363,6 +3523,9 @@ function Builder:_refreshExport()
 	if self._elCode and not self._elCode._destroyed then
 		self._elCode:SetText(self:Generate())
 	end
+	if self._elJsonOut and not self._elJsonOut._destroyed then
+		self._elJsonOut:SetText(self:ExportJSON())
+	end
 end
 
 function Builder:_addStructButton(label, tab, node)
@@ -3374,7 +3537,6 @@ function Builder:_addStructButton(label, tab, node)
 			self:_refreshProperties()
 		end,
 	})
-	table.insert(self._structButtons, el)
 	table.insert(self._structElements, el)
 end
 
@@ -3448,6 +3610,22 @@ function Builder:_refreshProperties()
 			Callback = function(text)
 				sel.tab.Icon = tostring(text)
 				self:_refreshExport()
+			end,
+		}))
+		addPropElement(self, tab:CreateButton({
+			Name = "Duplicate tab",
+			Callback = function()
+				if self:DuplicateSelectedTab() then
+					self:_refreshAll()
+				end
+			end,
+		}))
+		addPropElement(self, tab:CreateButton({
+			Name = "Delete tab",
+			Callback = function()
+				if self:DeleteSelected() then
+					self:_refreshAll()
+				end
 			end,
 		}))
 		return

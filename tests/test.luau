@@ -678,6 +678,181 @@ check("generated script executes against the mock", function()
 	gen:Destroy()
 end)
 
+
+check("builder validation rejects broken projects", function()
+	B:NewProject()
+	local proj = B._project
+	local bad = B:AddBlock("Slider")
+	bad.Min = 10
+	bad.Max = 5
+	local t2 = B:AddBlock("Toggle")
+	t2.Flag = "fly" -- duplicate of the default toggle's flag
+	local valid, why = B:Validate()
+	assert(valid == false, "validation should fail")
+	assert(why:find("greater than Min", 1, true), "slider problem not reported")
+	assert(why:find("reuses flag", 1, true), "duplicate flag not reported")
+	local windowsBefore = #Polaris._windows
+	assert(B:OpenPreview() == nil, "preview should refuse an invalid project")
+	assert(#Polaris._windows == windowsBefore, "failed preview must not leak windows")
+	local code = B:Generate()
+	assert(code:find("WARNING", 1, true), "codegen should warn about invalid projects")
+	assert(code:find("Max = 11", 1, true), "codegen should fix Max <= Min")
+end)
+
+check("builder export works without clipboard or files", function()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	B:_refreshExport()
+	assert(B._elJsonOut ~= nil and type(B._elJsonOut._value) == "string" and #B._elJsonOut._value > 10,
+		"JSON output paragraph should be populated")
+	assert(B._elCode ~= nil and type(B._elCode._value) == "string" and #B._elCode._value > 100,
+		"code output paragraph should be populated")
+	B:Close()
+end)
+
+check("builder close during splash aborts the open", function()
+	B.SplashDuration = 0.5
+	B:Close()
+	local windowsBefore = #Polaris._windows
+	tasklib.spawn(function()
+		B:Open()
+	end)
+	tasklib.wait(0.1) -- mid-splash
+	B:Close()
+	tasklib.wait(0.8) -- let the splash coroutine run out its waits
+	assert(B._splashGui == nil, "splash gui leaked")
+	assert(B._window == nil, "builder window created after close")
+	assert(B:IsOpen() == false, "builder should stay closed")
+	assert(#Polaris._windows == windowsBefore, "orphan windows after aborted splash")
+	B.SplashDuration = 0
+	B:Open()
+	assert(B:IsOpen() == true, "reopen after aborted splash should work")
+	B:Close()
+end)
+
+check("builder window destroy cleans up its preview", function()
+	B:NewProject()
+	B.SplashDuration = 0
+	B:Close()
+	B:Open()
+	local prev = B:OpenPreview()
+	assert(prev ~= nil, "preview missing")
+	B._window:Destroy() -- same path as the window's X button
+	assert(prev._destroyed == true, "preview should close with the builder window")
+	assert(B._window == nil, "builder window reference not cleared")
+	assert(B:IsOpen() == false, "builder should report closed")
+	local stillRegistered = false
+	for _, w in Polaris._windows do
+		if w == prev then
+			stillRegistered = true
+		end
+	end
+	assert(stillRegistered == false, "destroyed preview still registered")
+	B:Close()
+end)
+
+check("builder codegen escapes control characters", function()
+	B:NewProject()
+	local proj = B._project
+	-- name containing CR, LF, a backslash and a quote
+	proj.tabs[1].nodes[1].Name = "Line" .. string.char(13) .. string.char(10) .. "Tab" .. string.char(92) .. "Slash" .. string.char(34) .. "Quote"
+	local code = B:Generate()
+	-- exactly what quote() should emit for that name
+	local expected = string.char(34) .. "Line" .. string.char(92) .. "r" .. string.char(92) .. "nTab"
+		.. string.char(92) .. string.char(92) .. "Slash" .. string.char(92) .. string.char(34) .. "Quote" .. string.char(34)
+	assert(code:find(expected, 1, true) ~= nil, "control characters not escaped correctly")
+end)
+
+check("builder tab duplicate re-flags blocks", function()
+	B:NewProject()
+	local proj = B._project
+	local tab = proj.tabs[1]
+	B:Select(tab, nil)
+	local copy = B:DuplicateSelectedTab()
+	assert(copy ~= nil and #proj.tabs == 2, "tab not duplicated")
+	assert(copy.nodes[2].Flag ~= "fly", "duplicated toggle should get a fresh flag")
+	local valid = B:Validate()
+	assert(valid == true, "duplicated tab should remain valid")
+end)
+
+check("generated script with every block type round-trips values", function()
+	B:NewProject()
+	local proj = B._project
+	local tab = proj.tabs[1]
+	-- default project has Section + Toggle(fly, false); make the toggle default true
+	tab.nodes[2].Default = true
+	B:Select(tab, tab.nodes[2])
+	local dd = B:AddBlock("Dropdown")
+	dd.Options = "red, green, blue"
+	local sl = B:AddBlock("Slider")
+	sl.Min = 0
+	sl.Max = 50
+	sl.Default = 25
+	sl.Increment = 5
+	sl.Flag = "speed"
+	local cp = B:AddBlock("ColorPicker")
+	cp.R = 10
+	cp.G = 20
+	cp.B = 30
+	cp.Flag = "colorpick"
+	local kb = B:AddBlock("Keybind")
+	kb.Key = "F"
+	kb.Flag = "hotkey"
+	local tb = B:AddBlock("Textbox")
+	tb.Default = "hello world"
+	tb.Flag = "words"
+	local para = B:AddBlock("Paragraph")
+	para.Text = "some paragraph text"
+	B:AddBlock("Divider")
+	local btn = B:AddBlock("Button")
+	btn.Name = "Do Thing"
+
+	local code = B:Generate()
+	assert(B:Validate() == true, "project should be valid")
+
+	local env3 = mock.buildEnv()
+	setmetatable(env3, { __index = _G })
+	env3.task = require("@lune/task")
+	env3.loadstring = function(src)
+		local chunk = luau.load(src, { debugName = "full-loader", environment = env3 })
+		return function(...)
+			local lib = chunk(...)
+			env3.__LOADED_LIB = lib
+			return lib
+		end
+	end
+	env3.game.HttpGet = function(_, url)
+		return source
+	end
+
+	local chunk = luau.load(code, { debugName = "full-generated", environment = env3 })
+	local ok, err = pcall(chunk)
+	assert(ok, "generated code failed: " .. tostring(err))
+	local lib3 = env3.__LOADED_LIB
+	assert(#lib3._windows == 1, "window not created")
+	local gen = lib3._windows[1]
+	assert(gen._config.Name == "My Hub")
+	local genTab = gen._tabs[1]
+	-- flags registered
+	for _, flag in { "fly", "speed", "colorpick", "hotkey", "words" } do
+		assert(gen.Flags[flag] ~= nil, ("flag '%s' not registered"):format(flag))
+	end
+	-- values round-trip
+	for _, el in genTab._elements do
+		local name = el._config.Name
+		if name == "Fly" then
+			assert(el:Get() == true, "toggle default lost")
+		elseif name == "Speed" then
+			assert(el._config.Min == 0 and el._config.Max == 50, "slider range lost")
+			assert(el:Get() == 25, "slider default lost")
+		elseif name == "New Dropdown" then
+			assert(el._config.Options[1] == "red" and el._config.Options[3] == "blue", "dropdown options lost")
+		end
+	end
+	gen:Destroy()
+end)
+
 ----------------------------------------------------------------
 -- Summary
 ----------------------------------------------------------------
