@@ -25,6 +25,7 @@ Watch the 52 second tour (made for version 2, so it shows five launcher tiles): 
 | A UI from a table | `Polaris.Hub({ Name = "Hi", Buttons = { Wave = function() print("wave") end } })` |
 | Drag and drop designer that exports code | `Polaris.Builder:Open()` |
 | Open a Builder project without code | `Polaris.FromProject(jsonText)` |
+| A big ready-made fun hub (party, filters, overlays, games) | `loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/CrazyHub.luau"))()` |
 | An app from a safe JSON spec | `Polaris.Spec.Build({ Name = "App", Tabs = { ... } })` |
 | An app from a sentence (demo offline, Perplexity with your key) | `Polaris.Imagine("a clicker game")` |
 | The Make Anything window | `Polaris.Imaginer()` |
@@ -56,6 +57,7 @@ New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLib
 Polaris.luau          the loadstring target (obfuscated build of src/Polaris.luau)
 Start.luau            the same one-liner as a file
 Builder.luau          opens the visual Builder on its own
+CrazyHub.luau         a big example hub made with Polaris 3
 GUIDE.md              how to use everything
 docs/API.md           classic API reference
 docs/video/           the tour video and the scripts that made it

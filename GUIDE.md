@@ -4,7 +4,7 @@ Polaris builds script library UIs, deep-research UIs and Roblox hubs, and since 
 
 Watch the tour first: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4) (52 seconds, captions only, no sound). The slides in it are drawings of the layout, not screenshots of a live Roblox session. It was made for version 2 and shows five launcher tiles. Version 3 has a sixth, Make Anything.
 
-Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Mock executor](#mock-executor-window) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Create anything (v3)](#create-anything-v3) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
+Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Mock executor](#mock-executor-window) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Create anything (v3)](#create-anything-v3) - [Crazy Hub](#crazy-hub) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
 
 ## Quick start for everyone
 
@@ -545,6 +545,27 @@ How it stays safe: the provider must answer with a spec. Polaris cuts out any co
 ### What this means by anything
 
 You can now build any interface made from these parts, or from your own parts through Custom and DefineElement, and wire it with state and the safe actions. That covers hubs, dashboards, trackers, settings screens, forms, tools and small games with a clicker style loop. It still does not mean any program: Polaris draws UI inside Roblox. It does not run outside Roblox, does not write game logic for you beyond the safe action list, and cannot be an executor.
+
+## Crazy Hub
+
+`CrazyHub.luau` is a big example hub made only with Polaris 3, and a good thing to copy from. Load it with one line:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/CrazyHub.luau"))()
+```
+
+| Tab | What is in it |
+|---|---|
+| Party | Disco lights (colours fade, never flash), time lapse, rainbow window, wobbly view, confetti bursts and rain, Surprise me, Party mode |
+| Look | Field of view, time of day, brightness and fog sliders, colour moods (Sepia, Noir, Neon, Frozen, Sunset, Toxic), glow, blur, sun rays |
+| Screen | Matrix rain, retro TV lines, dark corners, a clock, three crosshair styles |
+| Games | A saved clicker with upgrades and helpers, dice and coins with a history table, a reaction test, a fortune button |
+| Script shelf | The script library with eight hub scripts plus one more, and + Add for your own |
+| Make your own | Buttons for the block editor, Make Anything and the mock executor window |
+| Stats | Live FPS, ping, players and memory, a live FPS chart and a log of what you switched on |
+| Settings | Gentle mode (on by default), themes, and Calm down, which undoes everything |
+
+It only changes your own screen, camera and lighting. It does not touch other players or the game, and closing the window puts everything back. It uses the same pieces you can use: `Polaris.State`, `CreateTable`, `CreateChart`, `CreateButtonRow`, `Add("ScriptLibrary")` and `Polaris.Imaginer()`. Like the rest of Polaris it has only been run under Lune with a simulated Roblox, so effects such as lighting fades, post effects and overlays have not been seen on a real client.
 
 ## Capabilities and limits
 
