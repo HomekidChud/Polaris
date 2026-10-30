@@ -606,3 +606,104 @@ function Window:AddSettingsTab(opts)
 	tab:CreateParagraph({ Text = "Polaris " .. Polaris.Version .. (opts.About and ("\n" .. opts.About) or "") })
 	return tab
 end
+
+----------------------------------------------------------------
+-- CodeEditor: a tall multiline monospace box with line numbers (scripts, notes, JSON ...)
+----------------------------------------------------------------
+-- config: Name (optional title), Default, Height (default 220), Placeholder, LineNumbers (default true),
+--         Callback(text) fired when the box loses focus.  Get() returns the text, Set(text) replaces it.
+
+local CodeEditor = newClass()
+
+local function lineCount(text)
+	local n = 1
+	for _ in tostring(text):gmatch("\n") do
+		n += 1
+	end
+	return n
+end
+
+function CodeEditor:_create(window, tab, config)
+	local height = config.Height or 220
+	local titleH = config.Name and 22 or 0
+	local self, row = scaffold(CodeEditor, window, tab, config, "CodeEditor", height + titleH)
+	if config.Name then
+		Kit.label(row, config.Name, { Size = 14, Position = UDim2.new(0, 8, 0, 0), WidthOffset = -16, Height = 20 })
+	end
+	local frame = Kit.frame(row, { Color = "Secondary", Radius = 6, Stroke = true, Clip = true, Size = UDim2.new(1, -16, 0, height), Position = UDim2.new(0, 8, 0, titleH) })
+	local scroll = Create("ScrollingFrame", {
+		Name = "EditorScroll", Size = UDim2.new(1, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = 5, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.XY, Parent = frame,
+	})
+	local showNumbers = config.LineNumbers ~= false
+	local gutterW = showNumbers and 38 or 0
+	local gutter
+	if showNumbers then
+		gutter = Create("TextLabel", {
+			Name = "Gutter", Size = UDim2.new(0, gutterW, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+			Font = Enum.Font.Code, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Right, TextYAlignment = Enum.TextYAlignment.Top,
+			Text = "1", Parent = scroll,
+		})
+		themed(gutter, "TextColor3", "SubText")
+		Create("UIPadding", { PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 6), Parent = gutter })
+	end
+	local box = Create("TextBox", {
+		Name = "CodeEditor", Position = UDim2.new(0, gutterW, 0, 0), Size = UDim2.new(1, -gutterW, 0, height - 4),
+		AutomaticSize = Enum.AutomaticSize.XY, BackgroundTransparency = 1, BorderSizePixel = 0, Text = tostring(config.Default or ""),
+		PlaceholderText = tostring(config.Placeholder or ""), Font = Enum.Font.Code, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true, TextWrapped = false, ClearTextOnFocus = false, Parent = scroll,
+	})
+	themed(box, "TextColor3", "Text")
+	themed(box, "PlaceholderColor3", "SubText")
+	Create("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), Parent = box })
+	self._box, self._gutter = box, gutter
+	self._value = box.Text
+
+	local function sync()
+		self._value = box.Text
+		if gutter then
+			local n = lineCount(box.Text)
+			local parts = table.create and table.create(n) or {}
+			for i = 1, n do
+				parts[i] = tostring(i)
+			end
+			gutter.Text = table.concat(parts, "\n")
+		end
+	end
+	sync()
+	self:_track(box:GetPropertyChangedSignal("Text"):Connect(sync))
+	self:_track(box.FocusLost:Connect(function(enterPressed)
+		if self._disabled then
+			return
+		end
+		sync()
+		if self._config.Callback then
+			I.invokeCallback(self._config.Callback, self._value, enterPressed)
+		end
+	end))
+	return self
+end
+
+function CodeEditor:_setValue(v)
+	self._value = tostring(v or "")
+	if self._box then
+		self._box.Text = self._value
+	end
+end
+
+function CodeEditor:Clear()
+	self:Set("", true)
+end
+
+function CodeEditor:GetLineCount()
+	return lineCount(self._value)
+end
+
+function Tab:CreateCodeEditor(config)
+	if type(config) == "string" then
+		config = { Default = config }
+	end
+	return CodeEditor:_create(self._window, self, config or {})
+end
+Polaris.ElementTypes = Polaris.ElementTypes or {}
+Polaris.ElementTypes.CodeEditor = function(t, c) return t:CreateCodeEditor(c) end

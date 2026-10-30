@@ -16,6 +16,7 @@ Watch the 52 second tour: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.
 |---|---|
 | Tile launcher for everyone | `Polaris.Start()` |
 | A hub built from blocks plus your own scripts | `Polaris.MakeHub()` |
+| An executor-style window (mock-up, nothing is injected) | `Polaris.MockExecutor()` |
 | A script library UI (search, tags, favourites) | `Polaris.Templates.ScriptLibrary({ Manifest = "https://.../scripts.json" })` |
 | A deep-research UI (plan, sources, cited report) | `Polaris.Templates.DeepResearch({ Provider = "Perplexity" })` |
 | A Roblox hub (live stats, FOV, time of day, output log) | `Polaris.Templates.RobloxHub({ Name = "My Hub" })` |
@@ -25,7 +26,7 @@ Watch the 52 second tour: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.
 | Drag and drop designer that exports code | `Polaris.Builder:Open()` |
 | Open a Builder project without code | `Polaris.FromProject(jsonText)` |
 
-New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLibrary, Research. Add any of them with `tab:Add("Kind", { ... })`.
+New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLibrary, Research, CodeEditor. Add any of them with `tab:Add("Kind", { ... })`.
 
 ## Honest limits
 

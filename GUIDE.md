@@ -4,7 +4,7 @@ Polaris builds script library UIs, deep-research UIs and Roblox hubs. You can st
 
 Watch the tour first: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4) (52 seconds, captions only, no sound). The slides in it are drawings of the layout, not screenshots of a live Roblox session.
 
-Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
+Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Mock executor](#mock-executor-window) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
 
 ## Quick start for everyone
 
@@ -107,6 +107,32 @@ They are plain Luau functions, so they do not need `loadstring` or HTTP. They ha
 Tap + Add. Type a name, then either paste a link that starts with https:// or paste code. Tap Add it. Your script appears with a "mine" tag and a remove button, and it is saved for next time when the executor can write files. Code you paste runs through `loadstring`, so it needs a place that allows it.
 
 In code: `library:AddUser("Name", "https://link or Luau code")`.
+
+## Mock executor window
+
+`Polaris.MockExecutor()` opens an executor-style window: an Attach button with a status light, a script editor with line numbers and up to eight script tabs, an Execute button, an output console, a Script Hub tab and a Settings tab. It is a mock-up. It is built only from ordinary Polaris elements and it does not attach to Roblox, bypass anything or inject anything.
+
+![Layout illustration of the mock executor window](docs/mock-executor.png)
+
+```lua
+local Polaris = loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))()
+local mock = Polaris.MockExecutor({ Name = "My Mock" })
+```
+
+What each part really does:
+
+| Part | Mock mode (default) | Live mode (`Live = true` or the Settings toggle) |
+|---|---|---|
+| Attach | Turns a pretend status light green after a moment. | Same. It never attaches to anything. |
+| Execute | Needs the green light. Checks the text for mistakes where `loadstring` exists, then prints what it would do. It does not run the text. | Runs the text with `loadstring`, or with your own `Run = function(code) ... end` handler. Errors are printed in the output. |
+| Script tabs | Up to eight tabs. Switching keeps each tab's text. | Same. |
+| Script Hub tab | The eight harmless hub scripts plus + Add. Tapping one does run it. | Same. |
+
+Options: `Name`, `Size` (a Vector2), `Live`, `Run`, `Scripts`, `Folder`, `Theme`, `Code`. The returned table has `:Attach()`, `:Detach()`, `:Execute()`, `:SetCode(text)`, `:GetCode()`, `:NewTab()`, `:CloseTab()`, `:SetLive(true)`, `:Log(text, kind)`, plus `.Window`, `.Editor` and `.Console`.
+
+Live mode needs `loadstring`, which only exists where an executor (or an enabled setting in Studio) already provides it. The mock cannot give you one. Polaris is the screen, not the engine underneath.
+
+The same editor is available in any window as `tab:CreateCodeEditor({ Default = "...", Height = 220, Callback = function(text) end })`.
 
 ## Script library UI
 
@@ -334,6 +360,7 @@ Every element works the same way: `tab:CreateX({ ... })`, or `tab:Add("X", { ...
 | Progress (new) | `Name`, `Max`, `Value`, `Color`; `:Set(n)` |
 | Console (new) | `Name`, `Height`, `MaxLines`; `:Log(text)`, `:Clear()` |
 | ButtonRow (new) | `Buttons = { { Name, Callback }, ... }` |
+| CodeEditor (new) | `Name`, `Default`, `Height`, `Placeholder`, `LineNumbers`, `Callback`; `:Get()`, `:Set(text)`, `:Clear()` |
 | Stats (new) | `Items`, `Columns`, `Interval` |
 | ScriptLibrary (new) | `Scripts`, `Library`, `Manifest`, `TrustedHosts`, `Confirm`, `Folder`, `Height`, `OnRun` |
 | Research (new) | `Provider`, `Depth`, `Depths`, `Height`, `Session` |
@@ -394,7 +421,7 @@ See [Deep research UI](#deep-research-ui). A summary of what is verified:
 | Intent matching | `Polaris.Make` is keyword matching. |
 | Script block code | Runs with your executor's full permissions. The editor can only check it for mistakes where `loadstring` exists. The preview never runs it. |
 | Security | Obfuscation deters casual copying and nothing more. Any script you load with the library runs with full permissions of your executor, so only add scripts you trust. |
-| Executor exploits | Not included. |
+| Executor exploits | Not included. `Polaris.MockExecutor()` is a mock-up window only: it does not attach to Roblox, inject or bypass anti-cheat, and Polaris cannot be turned into an executor, because an executor is native software outside Luau. |
 
 ## Rebuilding
 
