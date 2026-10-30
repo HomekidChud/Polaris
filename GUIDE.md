@@ -4,7 +4,7 @@ Polaris builds script library UIs, deep-research UIs and Roblox hubs. You can st
 
 Watch the tour first: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4) (52 seconds, captions only, no sound). The slides in it are drawings of the layout, not screenshots of a live Roblox session.
 
-Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
+Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
 
 ## Quick start for everyone
 
@@ -14,16 +14,16 @@ Paste this one line into your executor and run it.
 loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))().Start()
 ```
 
-A screen of six big tiles opens. Tap one.
+A screen of five big tiles and one wide pink button opens. Tap one.
 
-| Tile | What opens |
+| Tap | What opens |
 |---|---|
-| Scripts | A script library with search, tags and favourites |
+| Script Hub | A working script hub with ready-made scripts, search, favourites and a + Add button for your own |
 | Research | A deep-research window (plan, sources, cited report) |
 | Game Hub | Live stats, field of view, time of day, output log |
 | Everything | Home, Scripts and Research tabs in one window |
-| Build | The visual Builder, where you snap blocks together and export a script |
 | Play | One giant button that makes confetti. Nothing can go wrong |
+| Create your own script hub (wide button) | The block editor, already filled with a working hub you can change |
 
 Press RightShift to hide or show any Polaris window. On touch screens a floating "P" button does the same.
 
@@ -52,6 +52,7 @@ Polaris.Start({
 	Subtitle = "Tap a picture!",
 	Theme = "Midnight",
 	Keep = true,                   -- leave the tiles open after a tap
+	MakeHub = false,               -- hide the wide "Create your own script hub" button
 	Tiles = {
 		{ Name = "Hello", Icon = "rainbow", Color = Color3.fromRGB(255, 120, 80), Action = function() print("hi") end },
 		{ Name = "Scripts", Icon = "list", Action = function() Polaris.Templates.ScriptLibrary() end },
@@ -60,6 +61,52 @@ Polaris.Start({
 ```
 
 Icons you can use: `list`, `search`, `grid`, `plus`, `rainbow`, `dots`. They are drawn from plain boxes, so they need no images or emoji fonts.
+
+## Make your own script hub: blocks and scripts
+
+Tap the wide pink button, "Create your own script hub". The block editor opens with the My Script Hub template already loaded, so there is a working hub on screen from the first second.
+
+Two kinds of building block work together:
+
+| Kind | What it is | Example |
+|---|---|---|
+| Blocks | Pieces of the window: Label, Section, Toggle, Slider, Dropdown, Stats, Progress, Console, Script Library, Research | A title, a stats strip |
+| Script blocks | A button that holds your own Luau code and runs it when tapped | `workspace.CurrentCamera.FieldOfView = 100` |
+
+How to use it:
+
+1. Tap a block in the left list to add it. Tap a block on the canvas to edit it on the right.
+2. For a Script block, type a name and write your code in the tall code box. Code runs inside a safe wrapper, so a mistake shows a red note instead of breaking the hub.
+3. Add a Script Library block to list scripts that live at a web link. Type one per line as `Name | description | https://link`.
+4. Press Preview to try it. The preview shows Script buttons but does not run their code.
+5. Press Export for a ready script. It loads Polaris, builds your hub, and contains your code. Share that script as your own hub.
+
+The editor checks your code before export where the place allows it. If a Script block has a mistake it tells you which one.
+
+You can open the same editor from the Settings tab of any Polaris window, from the Home tab of the Roblox hub, or with `Polaris.MakeHub()`. `Polaris.MakeHub("Script Library")` starts from another template instead.
+
+## The script hub
+
+The Script Hub tile opens a real hub. These scripts are built in. They only change your own camera, lighting and screen, or show information:
+
+| Script | What it does |
+|---|---|
+| Fullbright | Brightens a dark game. Run again to undo |
+| Wide view | Field of view 100. Run again for normal |
+| Day or night | Flips your sky between midday and midnight |
+| FPS counter | A small frames-per-second number. Run again to hide |
+| Server info | Place id, player count, server id |
+| Copy game link | Copies the game's Roblox page link |
+| Hide chat | Hides or shows chat |
+| Rejoin this server | Leaves and joins the same server again |
+
+They are plain Luau functions, so they do not need `loadstring` or HTTP. They have not been tried in a real Roblox client.
+
+### Add your own scripts
+
+Tap + Add. Type a name, then either paste a link that starts with https:// or paste code. Tap Add it. Your script appears with a "mine" tag and a remove button, and it is saved for next time when the executor can write files. Code you paste runs through `loadstring`, so it needs a place that allows it.
+
+In code: `library:AddUser("Name", "https://link or Luau code")`.
 
 ## Script library UI
 
@@ -259,17 +306,17 @@ Polaris.Builder:Open()
 -- or: loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Builder.luau"))()
 ```
 
-Tap a block on the left to add it. Tap a block on the canvas to edit it on the right. Preview shows it live. Export gives a ready script.
+Tap a block on the left to add it. Tap a block on the canvas to edit it on the right. Preview shows it live. Export gives a ready script. The pink button on the launcher opens this editor with a working hub already loaded.
 
 New in 2.0:
 
-- Blocks: Label, Progress, Console, Stats, Script Library and Research, next to the originals.
-- Templates: Script Library, Deep Research, Roblox Hub and Everything, as buttons in the window properties panel.
+- Blocks: Script (your own code), Label, Progress, Console, Stats, Script Library and Research, next to the originals.
+- Templates: My Script Hub, Script Library, Deep Research, Roblox Hub and Everything, as buttons in the window properties panel.
 - A Script Library block takes lines like `Name | description | https://url ; Next | description | https://url`. Links must be https.
 - A Research block exports no API key. Players paste their own at run time.
 - Open a project without code: `Polaris.FromProject(jsonText, { ["Button name"] = function() end })`.
 
-Builder members: `Open`, `Close`, `Generate`, `ExportJSON`, `ImportJSON`, `GetProject`, `SetProject`, `NewProject`, `OpenPreview`, `ClosePreview`, `GetTemplateNames`, `LoadTemplate(name)`, `AddBlock(kind)`, `AddTab(name)`. The full older reference is in [docs/API.md](docs/API.md).
+Builder members: `Polaris.MakeHub()` (open with a template), `Open`, `Close`, `Generate`, `ExportJSON`, `ImportJSON`, `GetProject`, `SetProject`, `NewProject`, `OpenPreview`, `ClosePreview`, `GetTemplateNames`, `LoadTemplate(name)`, `AddBlock(kind)`, `AddTab(name)`. The full older reference is in [docs/API.md](docs/API.md).
 
 ## All elements
 
@@ -326,9 +373,10 @@ See [Deep research UI](#deep-research-ui). A summary of what is verified:
 
 ### It can
 
-- Open a tile launcher, a script library, a research window, a Roblox hub, or a visual Builder from one line.
+- Open a tile launcher, a working script hub, a research window, a Roblox hub, or a block editor for making your own hub from one line.
 - Build any window from plain tables, from words, or from a Builder project.
-- Search, tag, favourite, confirm and safely run scripts, from functions, code, URLs or a JSON manifest.
+- Search, tag, favourite, confirm and safely run scripts, from functions, code, URLs or a JSON manifest, and let players add their own with + Add.
+- Mix blocks and scripts in the editor: Script blocks hold real Luau code, and the export is a standalone hub script.
 - Run a plan, sources and cited report flow with a demo, Perplexity, HTTP or custom provider.
 - Show live stats, a progress bar, a console and a field of view and time of day control.
 - Switch themes live and save configs where files are available.
@@ -344,6 +392,7 @@ See [Deep research UI](#deep-research-ui). A summary of what is verified:
 | Files and clipboard | Need executor functions. Without them, saving falls back to memory for the session. |
 | Live research | Perplexity provider untested against the live API. Answers are only as good as the provider. |
 | Intent matching | `Polaris.Make` is keyword matching. |
+| Script block code | Runs with your executor's full permissions. The editor can only check it for mistakes where `loadstring` exists. The preview never runs it. |
 | Security | Obfuscation deters casual copying and nothing more. Any script you load with the library runs with full permissions of your executor, so only add scripts you trust. |
 | Executor exploits | Not included. |
 

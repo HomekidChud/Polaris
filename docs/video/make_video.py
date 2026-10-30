@@ -9,11 +9,11 @@ SL = os.path.join(HERE, "slides")
 PLAN = [
     ("01_title", 4.0, "Polaris 2.0: one line, one tap"),
     ("02_oneline", 6.0, "Paste this one line. It loads everything."),
-    ("03_tap", 7.0, "Then tap a picture. Big tiles, no reading needed."),
-    ("04_library", 6.0, "Script Library: search, star favourites, run."),
+    ("03_tap", 7.0, "Tap a picture, or tap the pink button to make your own hub."),
+    ("04_library", 6.0, "Script Hub: ready-made scripts, plus + Add for your own."),
     ("05_research", 6.0, "Deep Research: plan, sources, cited report."),
     ("06_hub", 6.0, "Roblox Hub: live stats, sliders, output log."),
-    ("07_builder", 6.0, "Builder: tap blocks, export a ready script."),
+    ("07_builder", 7.0, "Blocks build the hub. Script blocks hold your own code."),
     ("08_limits", 7.0, "Honest limits: read them before you rely on it."),
     ("09_outro", 4.0, "GUIDE.md has every step."),
 ]

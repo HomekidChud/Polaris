@@ -202,7 +202,97 @@ Kinds.Research = {
 	end,
 }
 
-for _, def in ipairs({ "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" }) do
+
+----------------------------------------------------------------
+-- Script: a block that holds real Luau code and runs it when tapped.
+-- This is how blocks and scripts mix: blocks make the hub, Script blocks do the work.
+----------------------------------------------------------------
+local function codeLines(code)
+	local out = {}
+	for line in (tostring(code or ""):gsub("\r", "") .. "\n"):gmatch("(.-)\n") do
+		table.insert(out, line)
+	end
+	while #out > 0 and trim(out[#out]) == "" do
+		table.remove(out)
+	end
+	return out
+end
+
+local function compileProblem(code)
+	local loader = loadstring
+	if type(loader) ~= "function" then
+		return nil -- cannot check here; the exported script will still be checked by Roblox when it loads
+	end
+	local fn, err = loader("local _ = function()\n" .. tostring(code or "") .. "\nend")
+	if not fn then
+		return tostring(err)
+	end
+	return nil
+end
+
+Kinds.Script = {
+	Label = "Script", Color = Color3.fromRGB(235, 100, 60),
+	new = function()
+		return { Kind = "Script", Name = "My script", Code = 'Polaris:Notify({ Title = "Hello", Content = "My script ran!", Type = "success" })' }
+	end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateButton({")
+		table.insert(L, "\tName = " .. quote(n.Name) .. ",")
+		table.insert(L, "\tCallback = function()")
+		table.insert(L, "\t\tlocal ok, err = pcall(function()")
+		for _, line in ipairs(codeLines(n.Code)) do
+			table.insert(L, "\t\t\t" .. line)
+		end
+		table.insert(L, "\t\tend)")
+		table.insert(L, "\t\tif not ok then")
+		table.insert(L, "\t\t\tPolaris:Notify({ Title = " .. quote(tostring(n.Name) .. " did not run") .. ", Content = tostring(err), Type = \"error\", Duration = 6 })")
+		table.insert(L, "\t\tend")
+		table.insert(L, "\tend,")
+		table.insert(L, "})")
+	end,
+	apply = function(tab, n)
+		-- the preview never runs your code; the exported hub does
+		tab:CreateButton({ Name = n.Name, Callback = function()
+			Polaris:Notify({ Title = tostring(n.Name), Content = "Preview only. Your code runs in the exported hub.", Type = "info", Duration = 3 })
+		end })
+	end,
+	item = function(n)
+		local code = tostring(n.Code or "")
+		return { Type = "Button", Name = n.Name, Callback = function()
+			local loader = loadstring
+			if type(loader) ~= "function" then
+				return Polaris:Notify({ Title = tostring(n.Name), Content = "This place does not allow loadstring, so block code cannot run here. Export the hub as a script instead.", Type = "warning", Duration = 6 })
+			end
+			local fn, err = loader(code)
+			if not fn then
+				return Polaris:Notify({ Title = tostring(n.Name) .. " has a mistake", Content = tostring(err), Type = "error", Duration = 6 })
+			end
+			local ok, runErr = pcall(fn)
+			if not ok then
+				Polaris:Notify({ Title = tostring(n.Name) .. " did not run", Content = tostring(runErr), Type = "error", Duration = 6 })
+			end
+		end }
+	end,
+	props = function(b, n, H)
+		H.nameBox(n)
+		H.code(b, "Your code (Luau)", n.Code, function(t)
+			n.Code = tostring(t)
+			b:_refreshExport()
+		end)
+	end,
+	validate = function(n, problem, label)
+		if trim(n.Code) == "" then
+			problem(label .. " script block has no code")
+			return
+		end
+		local bad = compileProblem(n.Code)
+		if bad then
+			problem(label .. " script block has a mistake: " .. bad)
+		end
+	end,
+}
+
+for _, def in ipairs({ "Script", "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" }) do
 	table.insert(Builder.BlockDefs, { Kind = def, Label = Kinds[def].Label, Color = Kinds[def].Color })
 end
 
@@ -214,6 +304,21 @@ local function proj(name, tabs)
 end
 
 local TEMPLATES = {
+	["My Script Hub"] = function()
+		return proj("My Script Hub", {
+			{ Name = "My Scripts", Icon = "", nodes = {
+				{ Kind = "Label", Text = "Welcome to my script hub", TextSize = 22, Bold = true },
+				{ Kind = "Section", Name = "Scripts I made with blocks" },
+				{ Kind = "Script", Name = "Say hello", Code = 'Polaris:Notify({ Title = "Hello", Content = "My hub works!", Type = "success" })' },
+				{ Kind = "Script", Name = "Brighten the world", Code = 'game:GetService("Lighting").Brightness = 3' },
+				{ Kind = "Script", Name = "Wide view", Code = 'workspace.CurrentCamera.FieldOfView = 100' },
+			} },
+			{ Name = "Script Library", Icon = "", nodes = {
+				{ Kind = "ScriptLibrary", Name = "My Library", Height = 320, Scripts = "Replace me | Put your own link here | https://example.com/my-script.lua" },
+			} },
+			{ Name = "Stats", Icon = "", nodes = { { Kind = "Stats", Name = "Stats", Items = "FPS, Ping, Players" } } },
+		})
+	end,
 	["Script Library"] = function()
 		return proj("Script Library", { { Name = "Library", Icon = "", nodes = {
 			{ Kind = "ScriptLibrary", Name = "Scripts", Height = 340, Scripts = "Hello | A tiny example | https://example.com/hello.lua ; Another | Replace me | https://example.com/another.lua" },
@@ -248,7 +353,7 @@ local TEMPLATES = {
 		})
 	end,
 }
-local TEMPLATE_ORDER = { "Script Library", "Deep Research", "Roblox Hub", "Everything" }
+local TEMPLATE_ORDER = { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Everything" }
 
 function Builder:GetTemplateNames()
 	return table.clone(TEMPLATE_ORDER)

@@ -45,6 +45,7 @@ function Library.normalize(def)
 		Tags = asList(def.Tags),
 		Games = asList(def.Games or def.PlaceIds or def.Game),
 		Icon = def.Icon,
+		User = def.User == true or nil,
 	}
 	local src = def.Source
 	local fn = def.Run or def.Callback or (type(src) == "function" and src) or nil
@@ -72,11 +73,16 @@ function Library.new(opts)
 	self._order = {}
 	self._fav = {}
 	self._runs = {}
+	self._userDefs = {} -- scripts the player added through the UI (saved when files are available)
 	self._events = Util.Events()
 	self._folder = opts.Folder and ("Polaris_" .. I.slugify(opts.Folder)) or nil
 	self:_load()
 	if opts.Scripts then
 		self:AddMany(opts.Scripts)
+	end
+	for _, def in ipairs(self._userDefs) do
+		def.User = true
+		pcall(self.Add, self, def)
 	end
 	return self
 end
@@ -108,6 +114,11 @@ function Library:_load()
 				for id, n in pairs(data.runs or {}) do
 					self._runs[id] = n
 				end
+				for _, def in ipairs(data.user or {}) do
+					if type(def) == "table" then
+						table.insert(self._userDefs, def)
+					end
+				end
 			end
 		end
 	end)
@@ -127,7 +138,7 @@ function Library:_save()
 			table.insert(favs, id)
 		end
 		table.sort(favs)
-		I.FS.write(path, JSON.encode({ favourites = favs, runs = self._runs }))
+		I.FS.write(path, JSON.encode({ favourites = favs, runs = self._runs, user = self._userDefs }))
 	end)
 end
 
@@ -144,6 +155,40 @@ function Library:Add(def)
 	return entry
 end
 
+-- A script the player typed in: a name plus a link (https://...) or Luau code.
+-- Returns the entry, or nil and a friendly message.
+function Library:AddUser(name, linkOrCode, description)
+	name = tostring(name or ""):match("^%s*(.-)%s*$")
+	local text = tostring(linkOrCode or ""):match("^%s*(.-)%s*$")
+	if name == "" then
+		return nil, "Give your script a name."
+	end
+	if text == "" then
+		return nil, "Paste a link or some code."
+	end
+	local def = { Name = name, Description = description or "Added by you", Tags = { "mine" }, Author = "you", User = true }
+	if text:find("^https?://") and not text:find("%s") then
+		if not text:find("^https://") then
+			return nil, "Links must start with https://"
+		end
+		def.Url = text
+	else
+		def.Code = text
+	end
+	local ok, entry = pcall(self.Add, self, def)
+	if not ok then
+		return nil, tostring(entry)
+	end
+	for i = #self._userDefs, 1, -1 do
+		if I.slugify(self._userDefs[i].Name) == entry.Id then
+			table.remove(self._userDefs, i)
+		end
+	end
+	table.insert(self._userDefs, def)
+	self:_save()
+	return entry
+end
+
 function Library:AddMany(list)
 	local added = {}
 	for _, def in ipairs(list) do
@@ -156,6 +201,12 @@ function Library:Remove(id)
 	if self._scripts[id] then
 		self._scripts[id] = nil
 		table.remove(self._order, I.indexOf(self._order, id))
+		for i = #self._userDefs, 1, -1 do
+			if I.slugify(self._userDefs[i].Name) == id then
+				table.remove(self._userDefs, i)
+				self:_save()
+			end
+		end
 		self._events:Emit("change")
 		return true
 	end
@@ -433,8 +484,9 @@ function LibEl:_create(window, tab, config)
 
 	-- top bar: search + quick filters
 	local bar = Create("Frame", { Name = "Bar", Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, Parent = holder })
-	local search = Kit.input(bar, { Placeholder = "Search " .. lib.Name .. "...", Size = UDim2.new(1, -170, 0, 30), TextSize = 14 })
+	local search = Kit.input(bar, { Placeholder = "Search " .. lib.Name .. "...", Size = UDim2.new(1, -236, 0, 30), TextSize = 14 })
 	self._search = search
+	local addBtn = Kit.button(bar, "+ Add", { Name = "AddScript", Color = "Accent", Size = UDim2.new(0, 62, 0, 30), Position = UDim2.new(1, -232, 0, 0), TextSize = 12 })
 	local fav = Kit.button(bar, "Favourites", { Color = "Secondary", TextColor = "SubText", Size = UDim2.new(0, 84, 0, 30), Position = UDim2.new(1, -166, 0, 0), TextSize = 12 })
 	local here = Kit.button(bar, "This game", { Color = "Secondary", TextColor = "SubText", Size = UDim2.new(0, 78, 0, 30), Position = UDim2.new(1, -78, 0, 0), TextSize = 12 })
 	self._favBtn, self._hereBtn = fav, here
@@ -454,6 +506,9 @@ function LibEl:_create(window, tab, config)
 		self._filter.Text = search.Text
 		self._status.Text = ""
 		self:Render()
+	end))
+	self:_track(addBtn.Activated:Connect(function()
+		self:_openAddForm()
 	end))
 	self:_track(fav.Activated:Connect(function()
 		self._filter.Favourites = not self._filter.Favourites
@@ -477,6 +532,39 @@ function LibEl:_create(window, tab, config)
 	self._value = ""
 	self:Render()
 	return self
+end
+
+-- "+ Add": a small form for your own script (name, then a link or code)
+function LibEl:_openAddForm()
+	if self._form and self._form.Parent then
+		return
+	end
+	local form = Kit.frame(self._holder, { Color = "Background", Radius = 10, Stroke = "Accent", Size = UDim2.new(1, 0, 1, -4), Position = UDim2.new(0, 0, 0, 0), Name = "AddForm" })
+	form.ZIndex = 50
+	self._form = form
+	Kit.label(form, "Add your own script", { Size = 16, Bold = true, Position = UDim2.new(0, 12, 0, 8), Width = 1, WidthOffset = -24, Height = 22 })
+	local name = Kit.input(form, { Name = "NameBox", Placeholder = "Name (for example: My fly script)", Size = UDim2.new(1, -24, 0, 32), Position = UDim2.new(0, 12, 0, 36) })
+	local body = Kit.input(form, { Name = "CodeBox", Placeholder = "Paste a link that starts with https:// or paste your code here", MultiLine = true, Size = UDim2.new(1, -24, 1, -128), Position = UDim2.new(0, 12, 0, 76), TextSize = 13 })
+	local msg = Kit.label(form, "", { Size = 12, Color = "Warning", Position = UDim2.new(0, 12, 1, -46), Width = 1, WidthOffset = -24, Height = 16 })
+	local save = Kit.button(form, "Add it", { Name = "SaveScript", Color = "Accent", Size = UDim2.new(0, 110, 0, 32), Position = UDim2.new(1, -234, 1, -38), TextSize = 14 })
+	local cancel = Kit.button(form, "Cancel", { Name = "CancelScript", Color = "Secondary", TextColor = "SubText", Size = UDim2.new(0, 110, 0, 32), Position = UDim2.new(1, -118, 1, -38), TextSize = 14 })
+	for _, box in { name, body } do
+		box.ZIndex = 51
+	end
+	save.ZIndex, cancel.ZIndex = 51, 51
+	self:_track(cancel.Activated:Connect(function()
+		form:Destroy()
+	end))
+	self:_track(save.Activated:Connect(function()
+		local entry, problem = self.Library:AddUser(name.Text, body.Text)
+		if not entry then
+			msg.Text = problem or "That did not work."
+			return
+		end
+		form:Destroy()
+		self._status.Text = "Added " .. entry.Name .. "."
+		Polaris:Notify({ Title = "Added", Content = entry.Name .. " is in your library.", Type = "success", Duration = 2.5 })
+	end))
 end
 
 function LibEl:_runEntry(entry)
@@ -551,6 +639,12 @@ function LibEl:_card(entry)
 	star.Activated:Connect(function()
 		lib:Favourite(entry.Id)
 	end)
+	if entry.User then
+		local del = Kit.button(card, "remove", { Name = "RemoveScript", Color = "Primary", TextColor = "SubText", Size = UDim2.new(0, 70, 0, 14), Position = UDim2.new(1, -80, 0, 56), TextSize = 10, Radius = 4 })
+		del.Activated:Connect(function()
+			lib:Remove(entry.Id)
+		end)
+	end
 	local run = Kit.button(card, "Run", { Color = "Accent", Size = UDim2.new(0, 70, 0, 36), Position = UDim2.new(1, -80, 0, 18), TextSize = 14 })
 	run.Activated:Connect(function()
 		self:_runEntry(entry)

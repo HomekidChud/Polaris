@@ -347,11 +347,11 @@ end
 ----------------------------------------------------------------
 
 local function defaultScripts()
-	return {
+	local list = {
 		{
 			Name = "Hello, Polaris", Description = "A tiny example script. It only shows a message.", Tags = { "example" }, Icon = "Hi",
 			Run = function()
-				Polaris:Notify({ Title = "Hello!", Content = "Your first script ran. Add your own with library:Add(...)", Type = "success" })
+				Polaris:Notify({ Title = "Hello!", Content = "Your first script ran. Tap + Add to put in your own.", Type = "success" })
 			end,
 		},
 		{
@@ -368,6 +368,12 @@ local function defaultScripts()
 			end,
 		},
 	}
+	if Polaris.HubScripts then
+		for _, s in ipairs(Polaris.HubScripts()) do
+			table.insert(list, s)
+		end
+	end
+	return list
 end
 Easy.defaultScripts = defaultScripts
 
@@ -433,6 +439,9 @@ function Templates.RobloxHub(opts)
 	if opts.About then
 		home:CreateParagraph({ Text = opts.About })
 	end
+	home:CreateButton({ Name = "Create your own script hub (blocks)", Callback = function()
+		Polaris.MakeHub()
+	end })
 	home:CreateParagraph({ Text = "Tip: press RightShift to hide or show this window." })
 	made.Tabs.Home = home
 

@@ -6,7 +6,7 @@ local B = Polaris.Builder
 
 check("templates exist and validate", function()
 	local names = B:GetTemplateNames()
-	assert(#names == 4)
+	assert(#names == 5)
 	for _, n in names do
 		B:NewProject()
 		B:LoadTemplate(n)
@@ -19,12 +19,12 @@ end)
 check("new kinds are in the palette", function()
 	local seen = {}
 	for _, d in B.BlockDefs do seen[d.Kind] = true end
-	for _, k in { "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" } do assert(seen[k], k) end
+	for _, k in { "Script", "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" } do assert(seen[k], k) end
 end)
 
 check("AddBlock creates each new kind", function()
 	B:NewProject()
-	for _, k in { "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" } do
+	for _, k in { "Script", "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" } do
 		local node = B:AddBlock(k)
 		assert(node and node.Kind == k, k)
 	end
@@ -42,7 +42,7 @@ check("validation catches bad new-kind input", function()
 	assert(not ok and why:find("https"), tostring(why))
 end)
 
-for _, tname in { "Script Library", "Deep Research", "Roblox Hub", "Everything" } do
+for _, tname in { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Everything" } do
 	check("generated code runs: " .. tname, function()
 		local Pol, e = H.load()
 		local b = Pol.Builder

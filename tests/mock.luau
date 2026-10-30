@@ -180,7 +180,7 @@ local EVENT_NAMES = {
 	Activated = true, MouseEnter = true, MouseLeave = true,
 	MouseButton1Down = true, MouseButton1Up = true,
 	FocusLost = true, FocusEnter = true, AncestryChanged = true,
-	Changed = true, Destroying = true,
+	Changed = true, Destroying = true, Heartbeat = true,
 }
 
 local allInstances = {}
@@ -374,6 +374,14 @@ function services.HttpService:JSONDecode(s)
 	end
 	error("mock HttpService: no serde")
 end
+
+-- Lighting and TeleportService (used by the hub scripts)
+services.Lighting = withDefaults(M.InstanceNew("Lighting"))
+services.Lighting._props.Brightness, services.Lighting._props.ClockTime = 1, 14
+services.Lighting._props.FogEnd, services.Lighting._props.GlobalShadows = 1000, true
+services.Lighting._props.Ambient = M.Color3 and M.Color3.new and M.Color3.new(0, 0, 0) or nil
+services.TeleportService = withDefaults(M.InstanceNew("TeleportService"))
+function services.TeleportService:TeleportToPlaceInstance() end
 
 -- RunService
 services.RunService = withDefaults(M.InstanceNew("RunService"))

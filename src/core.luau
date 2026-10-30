@@ -4278,6 +4278,29 @@ local function propTextbox(b, label, value, onChange)
 	return tb
 end
 
+-- tall multi-line box for code
+local function propCode(b, label, value, onChange)
+	local row = propRow(b, 168)
+	Create("TextLabel", {
+		Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -16, 0, 18), BackgroundTransparency = 1, Text = label,
+		TextColor3 = Color3.fromRGB(170, 176, 200), Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row,
+	})
+	local tb = Create("TextBox", {
+		Name = "CodeEditor",
+		Position = UDim2.new(0, 6, 0, 26), Size = UDim2.new(1, -12, 1, -32),
+		BackgroundColor3 = Color3.fromRGB(18, 20, 30), Text = tostring(value or ""),
+		TextColor3 = Color3.fromRGB(190, 240, 200), Font = Enum.Font.Code, TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+		MultiLine = true, TextWrapped = false, ClearTextOnFocus = false, Parent = row,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = tb })
+	Create("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), Parent = tb })
+	tb.FocusLost:Connect(function()
+		onChange(tostring(tb.Text))
+	end)
+	return tb
+end
+
 local function propToggle(b, label, value, onChange)
 	local row = propRow(b, 34)
 	propLabel(row, label)
@@ -4534,7 +4557,7 @@ function Builder:_refreshProperties()
 		if K and K.props then
 			K.props(b, node, {
 				nameBox = nameBox, flagBox = flagBox, numberBox = numberBox,
-				textbox = propTextbox, toggle = propToggle, cycle = propCycle, button = propButton,
+				textbox = propTextbox, code = propCode, toggle = propToggle, cycle = propCycle, button = propButton,
 			})
 		end
 	end

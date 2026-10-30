@@ -4279,6 +4279,29 @@ local function propTextbox(b, label, value, onChange)
 	return tb
 end
 
+-- tall multi-line box for code
+local function propCode(b, label, value, onChange)
+	local row = propRow(b, 168)
+	Create("TextLabel", {
+		Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -16, 0, 18), BackgroundTransparency = 1, Text = label,
+		TextColor3 = Color3.fromRGB(170, 176, 200), Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row,
+	})
+	local tb = Create("TextBox", {
+		Name = "CodeEditor",
+		Position = UDim2.new(0, 6, 0, 26), Size = UDim2.new(1, -12, 1, -32),
+		BackgroundColor3 = Color3.fromRGB(18, 20, 30), Text = tostring(value or ""),
+		TextColor3 = Color3.fromRGB(190, 240, 200), Font = Enum.Font.Code, TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+		MultiLine = true, TextWrapped = false, ClearTextOnFocus = false, Parent = row,
+	})
+	Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = tb })
+	Create("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), Parent = tb })
+	tb.FocusLost:Connect(function()
+		onChange(tostring(tb.Text))
+	end)
+	return tb
+end
+
 local function propToggle(b, label, value, onChange)
 	local row = propRow(b, 34)
 	propLabel(row, label)
@@ -4535,7 +4558,7 @@ function Builder:_refreshProperties()
 		if K and K.props then
 			K.props(b, node, {
 				nameBox = nameBox, flagBox = flagBox, numberBox = numberBox,
-				textbox = propTextbox, toggle = propToggle, cycle = propCycle, button = propButton,
+				textbox = propTextbox, code = propCode, toggle = propToggle, cycle = propCycle, button = propButton,
 			})
 		end
 	end
@@ -6094,6 +6117,12 @@ function Window:AddSettingsTab(opts)
 			},
 		})
 	end
+	tab:CreateSection({ Name = "Make your own" })
+	tab:CreateButton({ Name = "Create your own script hub (blocks)", Callback = function()
+		if Polaris.MakeHub then
+			Polaris.MakeHub()
+		end
+	end })
 	tab:CreateSection({ Name = "Window" })
 	tab:CreateButton({
 		Name = "Hide window (press the toggle key to bring it back)",
@@ -6168,6 +6197,7 @@ function Library.normalize(def)
 		Tags = asList(def.Tags),
 		Games = asList(def.Games or def.PlaceIds or def.Game),
 		Icon = def.Icon,
+		User = def.User == true or nil,
 	}
 	local src = def.Source
 	local fn = def.Run or def.Callback or (type(src) == "function" and src) or nil
@@ -6195,11 +6225,16 @@ function Library.new(opts)
 	self._order = {}
 	self._fav = {}
 	self._runs = {}
+	self._userDefs = {} -- scripts the player added through the UI (saved when files are available)
 	self._events = Util.Events()
 	self._folder = opts.Folder and ("Polaris_" .. I.slugify(opts.Folder)) or nil
 	self:_load()
 	if opts.Scripts then
 		self:AddMany(opts.Scripts)
+	end
+	for _, def in ipairs(self._userDefs) do
+		def.User = true
+		pcall(self.Add, self, def)
 	end
 	return self
 end
@@ -6231,6 +6266,11 @@ function Library:_load()
 				for id, n in pairs(data.runs or {}) do
 					self._runs[id] = n
 				end
+				for _, def in ipairs(data.user or {}) do
+					if type(def) == "table" then
+						table.insert(self._userDefs, def)
+					end
+				end
 			end
 		end
 	end)
@@ -6250,7 +6290,7 @@ function Library:_save()
 			table.insert(favs, id)
 		end
 		table.sort(favs)
-		I.FS.write(path, JSON.encode({ favourites = favs, runs = self._runs }))
+		I.FS.write(path, JSON.encode({ favourites = favs, runs = self._runs, user = self._userDefs }))
 	end)
 end
 
@@ -6267,6 +6307,40 @@ function Library:Add(def)
 	return entry
 end
 
+-- A script the player typed in: a name plus a link (https://...) or Luau code.
+-- Returns the entry, or nil and a friendly message.
+function Library:AddUser(name, linkOrCode, description)
+	name = tostring(name or ""):match("^%s*(.-)%s*$")
+	local text = tostring(linkOrCode or ""):match("^%s*(.-)%s*$")
+	if name == "" then
+		return nil, "Give your script a name."
+	end
+	if text == "" then
+		return nil, "Paste a link or some code."
+	end
+	local def = { Name = name, Description = description or "Added by you", Tags = { "mine" }, Author = "you", User = true }
+	if text:find("^https?://") and not text:find("%s") then
+		if not text:find("^https://") then
+			return nil, "Links must start with https://"
+		end
+		def.Url = text
+	else
+		def.Code = text
+	end
+	local ok, entry = pcall(self.Add, self, def)
+	if not ok then
+		return nil, tostring(entry)
+	end
+	for i = #self._userDefs, 1, -1 do
+		if I.slugify(self._userDefs[i].Name) == entry.Id then
+			table.remove(self._userDefs, i)
+		end
+	end
+	table.insert(self._userDefs, def)
+	self:_save()
+	return entry
+end
+
 function Library:AddMany(list)
 	local added = {}
 	for _, def in ipairs(list) do
@@ -6279,6 +6353,12 @@ function Library:Remove(id)
 	if self._scripts[id] then
 		self._scripts[id] = nil
 		table.remove(self._order, I.indexOf(self._order, id))
+		for i = #self._userDefs, 1, -1 do
+			if I.slugify(self._userDefs[i].Name) == id then
+				table.remove(self._userDefs, i)
+				self:_save()
+			end
+		end
 		self._events:Emit("change")
 		return true
 	end
@@ -6556,8 +6636,9 @@ function LibEl:_create(window, tab, config)
 
 	-- top bar: search + quick filters
 	local bar = Create("Frame", { Name = "Bar", Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, Parent = holder })
-	local search = Kit.input(bar, { Placeholder = "Search " .. lib.Name .. "...", Size = UDim2.new(1, -170, 0, 30), TextSize = 14 })
+	local search = Kit.input(bar, { Placeholder = "Search " .. lib.Name .. "...", Size = UDim2.new(1, -236, 0, 30), TextSize = 14 })
 	self._search = search
+	local addBtn = Kit.button(bar, "+ Add", { Name = "AddScript", Color = "Accent", Size = UDim2.new(0, 62, 0, 30), Position = UDim2.new(1, -232, 0, 0), TextSize = 12 })
 	local fav = Kit.button(bar, "Favourites", { Color = "Secondary", TextColor = "SubText", Size = UDim2.new(0, 84, 0, 30), Position = UDim2.new(1, -166, 0, 0), TextSize = 12 })
 	local here = Kit.button(bar, "This game", { Color = "Secondary", TextColor = "SubText", Size = UDim2.new(0, 78, 0, 30), Position = UDim2.new(1, -78, 0, 0), TextSize = 12 })
 	self._favBtn, self._hereBtn = fav, here
@@ -6577,6 +6658,9 @@ function LibEl:_create(window, tab, config)
 		self._filter.Text = search.Text
 		self._status.Text = ""
 		self:Render()
+	end))
+	self:_track(addBtn.Activated:Connect(function()
+		self:_openAddForm()
 	end))
 	self:_track(fav.Activated:Connect(function()
 		self._filter.Favourites = not self._filter.Favourites
@@ -6600,6 +6684,39 @@ function LibEl:_create(window, tab, config)
 	self._value = ""
 	self:Render()
 	return self
+end
+
+-- "+ Add": a small form for your own script (name, then a link or code)
+function LibEl:_openAddForm()
+	if self._form and self._form.Parent then
+		return
+	end
+	local form = Kit.frame(self._holder, { Color = "Background", Radius = 10, Stroke = "Accent", Size = UDim2.new(1, 0, 1, -4), Position = UDim2.new(0, 0, 0, 0), Name = "AddForm" })
+	form.ZIndex = 50
+	self._form = form
+	Kit.label(form, "Add your own script", { Size = 16, Bold = true, Position = UDim2.new(0, 12, 0, 8), Width = 1, WidthOffset = -24, Height = 22 })
+	local name = Kit.input(form, { Name = "NameBox", Placeholder = "Name (for example: My fly script)", Size = UDim2.new(1, -24, 0, 32), Position = UDim2.new(0, 12, 0, 36) })
+	local body = Kit.input(form, { Name = "CodeBox", Placeholder = "Paste a link that starts with https:// or paste your code here", MultiLine = true, Size = UDim2.new(1, -24, 1, -128), Position = UDim2.new(0, 12, 0, 76), TextSize = 13 })
+	local msg = Kit.label(form, "", { Size = 12, Color = "Warning", Position = UDim2.new(0, 12, 1, -46), Width = 1, WidthOffset = -24, Height = 16 })
+	local save = Kit.button(form, "Add it", { Name = "SaveScript", Color = "Accent", Size = UDim2.new(0, 110, 0, 32), Position = UDim2.new(1, -234, 1, -38), TextSize = 14 })
+	local cancel = Kit.button(form, "Cancel", { Name = "CancelScript", Color = "Secondary", TextColor = "SubText", Size = UDim2.new(0, 110, 0, 32), Position = UDim2.new(1, -118, 1, -38), TextSize = 14 })
+	for _, box in { name, body } do
+		box.ZIndex = 51
+	end
+	save.ZIndex, cancel.ZIndex = 51, 51
+	self:_track(cancel.Activated:Connect(function()
+		form:Destroy()
+	end))
+	self:_track(save.Activated:Connect(function()
+		local entry, problem = self.Library:AddUser(name.Text, body.Text)
+		if not entry then
+			msg.Text = problem or "That did not work."
+			return
+		end
+		form:Destroy()
+		self._status.Text = "Added " .. entry.Name .. "."
+		Polaris:Notify({ Title = "Added", Content = entry.Name .. " is in your library.", Type = "success", Duration = 2.5 })
+	end))
 end
 
 function LibEl:_runEntry(entry)
@@ -6674,6 +6791,12 @@ function LibEl:_card(entry)
 	star.Activated:Connect(function()
 		lib:Favourite(entry.Id)
 	end)
+	if entry.User then
+		local del = Kit.button(card, "remove", { Name = "RemoveScript", Color = "Primary", TextColor = "SubText", Size = UDim2.new(0, 70, 0, 14), Position = UDim2.new(1, -80, 0, 56), TextSize = 10, Radius = 4 })
+		del.Activated:Connect(function()
+			lib:Remove(entry.Id)
+		end)
+	end
 	local run = Kit.button(card, "Run", { Color = "Accent", Size = UDim2.new(0, 70, 0, 36), Position = UDim2.new(1, -80, 0, 18), TextSize = 14 })
 	run.Activated:Connect(function()
 		self:_runEntry(entry)
@@ -7889,11 +8012,11 @@ end
 ----------------------------------------------------------------
 
 local function defaultScripts()
-	return {
+	local list = {
 		{
 			Name = "Hello, Polaris", Description = "A tiny example script. It only shows a message.", Tags = { "example" }, Icon = "Hi",
 			Run = function()
-				Polaris:Notify({ Title = "Hello!", Content = "Your first script ran. Add your own with library:Add(...)", Type = "success" })
+				Polaris:Notify({ Title = "Hello!", Content = "Your first script ran. Tap + Add to put in your own.", Type = "success" })
 			end,
 		},
 		{
@@ -7910,6 +8033,12 @@ local function defaultScripts()
 			end,
 		},
 	}
+	if Polaris.HubScripts then
+		for _, s in ipairs(Polaris.HubScripts()) do
+			table.insert(list, s)
+		end
+	end
+	return list
 end
 Easy.defaultScripts = defaultScripts
 
@@ -7975,6 +8104,9 @@ function Templates.RobloxHub(opts)
 	if opts.About then
 		home:CreateParagraph({ Text = opts.About })
 	end
+	home:CreateButton({ Name = "Create your own script hub (blocks)", Callback = function()
+		Polaris.MakeHub()
+	end })
 	home:CreateParagraph({ Text = "Tip: press RightShift to hide or show this window." })
 	made.Tabs.Home = home
 
@@ -8248,17 +8380,32 @@ function Polaris.Toy()
 end
 
 ----------------------------------------------------------------
+-- Make your own hub: the block editor, pre-loaded with a working script hub.
+-- Blocks build the hub; Script blocks hold your own code; Export gives a script you can share.
+----------------------------------------------------------------
+
+function Polaris.MakeHub(template)
+	local B = Polaris.Builder
+	B:LoadTemplate(template or "My Script Hub")
+	if B:IsOpen() then
+		B:_refreshAll()
+	else
+		B:Open()
+	end
+	return B
+end
+
+----------------------------------------------------------------
 -- Launcher
 ----------------------------------------------------------------
 
 local function defaultTiles()
 	local T = Polaris.Templates
 	return {
-		{ Name = "Scripts", Icon = "list", Color = Color3.fromRGB(66, 133, 244), Action = function() return T.ScriptLibrary() end },
+		{ Name = "Script Hub", Icon = "list", Color = Color3.fromRGB(66, 133, 244), Action = function() return T.ScriptLibrary({ Name = "Script Hub" }) end },
 		{ Name = "Research", Icon = "search", Color = Color3.fromRGB(150, 95, 235), Action = function() return T.DeepResearch() end },
 		{ Name = "Game Hub", Icon = "grid", Color = Color3.fromRGB(52, 168, 100), Action = function() return T.RobloxHub() end },
 		{ Name = "Everything", Icon = "rainbow", Color = Color3.fromRGB(240, 140, 40), Action = function() return T.Everything() end },
-		{ Name = "Build", Icon = "plus", Color = Color3.fromRGB(230, 80, 140), Action = function() return Polaris.Builder:Open() end },
 		{ Name = "Play", Icon = "dots", Color = Color3.fromRGB(235, 190, 40), Action = function() return Polaris.Toy() end },
 	}
 end
@@ -8295,7 +8442,7 @@ function Polaris.Start(opts)
 	local cell = math.floor((W - 40 - (cols - 1) * gap) / cols)
 	local cellH = math.min(cell, 168)
 	local scroll = Create("ScrollingFrame", {
-		Size = UDim2.new(1, -24, 1, -104), Position = UDim2.new(0, 12, 0, 96), BackgroundTransparency = 1, BorderSizePixel = 0,
+		Size = UDim2.new(1, -24, 1, opts.MakeHub == false and -104 or -184), Position = UDim2.new(0, 12, 0, 96), BackgroundTransparency = 1, BorderSizePixel = 0,
 		ScrollBarThickness = 5, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = card,
 	})
 	Create("UIGridLayout", { CellSize = UDim2.new(0, cell, 0, cellH), CellPadding = UDim2.new(0, gap, 0, gap), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll })
@@ -8306,6 +8453,28 @@ function Polaris.Start(opts)
 		if gui.Parent then
 			gui:Destroy()
 		end
+	end
+
+	if opts.MakeHub ~= false then
+		local banner = Create("TextButton", { Name = "MakeHub", Text = "", AutoButtonColor = false, BackgroundColor3 = Color3.fromRGB(230, 80, 140), BorderSizePixel = 0, Size = UDim2.new(1, -24, 0, 66), Position = UDim2.new(0, 12, 1, -78), Parent = card })
+		Create("UICorner", { CornerRadius = UDim.new(0, 18), Parent = banner })
+		local plus = Create("Frame", { Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(0, 16, 0.5, -20), BackgroundTransparency = 1, Parent = banner })
+		ICONS.plus(plus)
+		Kit.label(banner, "Create your own script hub", { Size = 24, Bold = true, Position = UDim2.new(0, 70, 0, 8), Width = 1, WidthOffset = -84, Height = 30, Color = Color3.new(1, 1, 1) })
+		Kit.label(banner, "Snap blocks together and add your own scripts", { Size = 14, Position = UDim2.new(0, 70, 0, 38), Width = 1, WidthOffset = -84, Height = 20, Color = Color3.fromRGB(255, 225, 240) })
+		banner.Activated:Connect(function()
+			Polaris.Confetti(gui, 30)
+			task.delay(0.35, function()
+				if not opts.Keep then
+					handle:Close()
+				end
+				local ok, err = pcall(Polaris.MakeHub)
+				if not ok then
+					warn("[Polaris] could not open the hub maker:", err)
+					Polaris:Notify({ Title = "Oops", Content = "The hub maker did not open. " .. tostring(err), Type = "error", Duration = 6 })
+				end
+			end)
+		end)
 	end
 
 	for i, tile in ipairs(tiles) do
@@ -8546,7 +8715,97 @@ Kinds.Research = {
 	end,
 }
 
-for _, def in ipairs({ "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" }) do
+
+----------------------------------------------------------------
+-- Script: a block that holds real Luau code and runs it when tapped.
+-- This is how blocks and scripts mix: blocks make the hub, Script blocks do the work.
+----------------------------------------------------------------
+local function codeLines(code)
+	local out = {}
+	for line in (tostring(code or ""):gsub("\r", "") .. "\n"):gmatch("(.-)\n") do
+		table.insert(out, line)
+	end
+	while #out > 0 and trim(out[#out]) == "" do
+		table.remove(out)
+	end
+	return out
+end
+
+local function compileProblem(code)
+	local loader = loadstring
+	if type(loader) ~= "function" then
+		return nil -- cannot check here; the exported script will still be checked by Roblox when it loads
+	end
+	local fn, err = loader("local _ = function()\n" .. tostring(code or "") .. "\nend")
+	if not fn then
+		return tostring(err)
+	end
+	return nil
+end
+
+Kinds.Script = {
+	Label = "Script", Color = Color3.fromRGB(235, 100, 60),
+	new = function()
+		return { Kind = "Script", Name = "My script", Code = 'Polaris:Notify({ Title = "Hello", Content = "My script ran!", Type = "success" })' }
+	end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateButton({")
+		table.insert(L, "\tName = " .. quote(n.Name) .. ",")
+		table.insert(L, "\tCallback = function()")
+		table.insert(L, "\t\tlocal ok, err = pcall(function()")
+		for _, line in ipairs(codeLines(n.Code)) do
+			table.insert(L, "\t\t\t" .. line)
+		end
+		table.insert(L, "\t\tend)")
+		table.insert(L, "\t\tif not ok then")
+		table.insert(L, "\t\t\tPolaris:Notify({ Title = " .. quote(tostring(n.Name) .. " did not run") .. ", Content = tostring(err), Type = \"error\", Duration = 6 })")
+		table.insert(L, "\t\tend")
+		table.insert(L, "\tend,")
+		table.insert(L, "})")
+	end,
+	apply = function(tab, n)
+		-- the preview never runs your code; the exported hub does
+		tab:CreateButton({ Name = n.Name, Callback = function()
+			Polaris:Notify({ Title = tostring(n.Name), Content = "Preview only. Your code runs in the exported hub.", Type = "info", Duration = 3 })
+		end })
+	end,
+	item = function(n)
+		local code = tostring(n.Code or "")
+		return { Type = "Button", Name = n.Name, Callback = function()
+			local loader = loadstring
+			if type(loader) ~= "function" then
+				return Polaris:Notify({ Title = tostring(n.Name), Content = "This place does not allow loadstring, so block code cannot run here. Export the hub as a script instead.", Type = "warning", Duration = 6 })
+			end
+			local fn, err = loader(code)
+			if not fn then
+				return Polaris:Notify({ Title = tostring(n.Name) .. " has a mistake", Content = tostring(err), Type = "error", Duration = 6 })
+			end
+			local ok, runErr = pcall(fn)
+			if not ok then
+				Polaris:Notify({ Title = tostring(n.Name) .. " did not run", Content = tostring(runErr), Type = "error", Duration = 6 })
+			end
+		end }
+	end,
+	props = function(b, n, H)
+		H.nameBox(n)
+		H.code(b, "Your code (Luau)", n.Code, function(t)
+			n.Code = tostring(t)
+			b:_refreshExport()
+		end)
+	end,
+	validate = function(n, problem, label)
+		if trim(n.Code) == "" then
+			problem(label .. " script block has no code")
+			return
+		end
+		local bad = compileProblem(n.Code)
+		if bad then
+			problem(label .. " script block has a mistake: " .. bad)
+		end
+	end,
+}
+
+for _, def in ipairs({ "Script", "Label", "Progress", "Console", "Stats", "ScriptLibrary", "Research" }) do
 	table.insert(Builder.BlockDefs, { Kind = def, Label = Kinds[def].Label, Color = Kinds[def].Color })
 end
 
@@ -8558,6 +8817,21 @@ local function proj(name, tabs)
 end
 
 local TEMPLATES = {
+	["My Script Hub"] = function()
+		return proj("My Script Hub", {
+			{ Name = "My Scripts", Icon = "", nodes = {
+				{ Kind = "Label", Text = "Welcome to my script hub", TextSize = 22, Bold = true },
+				{ Kind = "Section", Name = "Scripts I made with blocks" },
+				{ Kind = "Script", Name = "Say hello", Code = 'Polaris:Notify({ Title = "Hello", Content = "My hub works!", Type = "success" })' },
+				{ Kind = "Script", Name = "Brighten the world", Code = 'game:GetService("Lighting").Brightness = 3' },
+				{ Kind = "Script", Name = "Wide view", Code = 'workspace.CurrentCamera.FieldOfView = 100' },
+			} },
+			{ Name = "Script Library", Icon = "", nodes = {
+				{ Kind = "ScriptLibrary", Name = "My Library", Height = 320, Scripts = "Replace me | Put your own link here | https://example.com/my-script.lua" },
+			} },
+			{ Name = "Stats", Icon = "", nodes = { { Kind = "Stats", Name = "Stats", Items = "FPS, Ping, Players" } } },
+		})
+	end,
 	["Script Library"] = function()
 		return proj("Script Library", { { Name = "Library", Icon = "", nodes = {
 			{ Kind = "ScriptLibrary", Name = "Scripts", Height = 340, Scripts = "Hello | A tiny example | https://example.com/hello.lua ; Another | Replace me | https://example.com/another.lua" },
@@ -8592,7 +8866,7 @@ local TEMPLATES = {
 		})
 	end,
 }
-local TEMPLATE_ORDER = { "Script Library", "Deep Research", "Roblox Hub", "Everything" }
+local TEMPLATE_ORDER = { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Everything" }
 
 function Builder:GetTemplateNames()
 	return table.clone(TEMPLATE_ORDER)
@@ -8603,6 +8877,151 @@ function Builder:LoadTemplate(name)
 	assert(make, "[Polaris] Builder: unknown template '" .. tostring(name) .. "'. Valid: " .. table.concat(TEMPLATE_ORDER, ", "))
 	self:SetProject(make())
 	return self:GetProject()
+end
+
+end
+
+----------------------------------------------------------------
+-- module: 09_hubscripts.luau
+----------------------------------------------------------------
+do
+-- hub scripts: ready-made, harmless client-side scripts so the library is a real script hub the moment
+-- it opens.  Everything here only changes YOUR OWN camera, lighting and screen, or shows information.
+-- None of it touches other players or the game's data.  Untested in a real Roblox client (see GUIDE.md).
+
+local Util = Polaris.Util
+
+local function svc(name)
+	return Util.svc(name)
+end
+
+local function note(title, text, kind)
+	Polaris:Notify({ Title = title, Content = text, Type = kind or "info", Duration = 3.5 })
+end
+
+local saved = {} -- remembered values so a second run can undo the change
+
+function Polaris.HubScripts()
+	return {
+		{
+			Name = "Fullbright", Description = "Brightens a dark game. Run again to put it back.", Tags = { "look", "lighting" },
+			Run = function()
+				local L = svc("Lighting")
+				if saved.Fullbright then
+					for k, v in saved.Fullbright do
+						L[k] = v
+					end
+					saved.Fullbright = nil
+					return note("Fullbright", "Back to normal.")
+				end
+				saved.Fullbright = { Brightness = L.Brightness, ClockTime = L.ClockTime, FogEnd = L.FogEnd, GlobalShadows = L.GlobalShadows, Ambient = L.Ambient }
+				L.Brightness, L.ClockTime, L.FogEnd, L.GlobalShadows = 2, 14, 100000, false
+				L.Ambient = Color3.fromRGB(170, 170, 170)
+				note("Fullbright", "Lights on. Run it again to undo.", "success")
+			end,
+		},
+		{
+			Name = "Wide view", Description = "Field of view 100 for a wider picture. Run again for normal.", Tags = { "look", "camera" },
+			Run = function()
+				local cam = workspace.CurrentCamera
+				if saved.Fov then
+					cam.FieldOfView = saved.Fov
+					saved.Fov = nil
+					return note("Wide view", "Back to normal.")
+				end
+				saved.Fov = cam.FieldOfView
+				cam.FieldOfView = 100
+				note("Wide view", "Field of view is 100.", "success")
+			end,
+		},
+		{
+			Name = "Day or night", Description = "Flips your sky between midday and midnight, just for you.", Tags = { "look", "lighting" },
+			Run = function()
+				local L = svc("Lighting")
+				local night = (L.ClockTime < 6 or L.ClockTime > 18)
+				L.ClockTime = night and 14 or 0
+				note("Day or night", night and "It is midday." or "It is midnight.")
+			end,
+		},
+		{
+			Name = "FPS counter", Description = "A small frames-per-second number in the corner. Run again to hide it.", Tags = { "info", "tools" },
+			Run = function()
+				if saved.FpsGui then
+					pcall(function()
+						saved.FpsConn:Disconnect()
+					end)
+					saved.FpsGui:Destroy()
+					saved.FpsGui, saved.FpsConn = nil, nil
+					return note("FPS counter", "Hidden.")
+				end
+				local gui = Instance.new("ScreenGui")
+				gui.Name = "PolarisFps"
+				gui.ResetOnSpawn = false
+				gui.Parent = I.getGuiParent()
+				local label = Instance.new("TextLabel")
+				label.Size = UDim2.new(0, 90, 0, 26)
+				label.Position = UDim2.new(1, -100, 0, 8)
+				label.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+				label.BackgroundTransparency = 0.25
+				label.TextColor3 = Color3.fromRGB(120, 255, 160)
+				label.TextSize = 16
+				label.Text = "FPS ..."
+				label.Parent = gui
+				local frames, last = 0, os.clock()
+				saved.FpsGui = gui
+				saved.FpsConn = svc("RunService").Heartbeat:Connect(function()
+					frames += 1
+					local now = os.clock()
+					if now - last >= 0.5 then
+						label.Text = "FPS " .. math.floor(frames / (now - last) + 0.5)
+						frames, last = 0, now
+					end
+				end)
+			end,
+		},
+		{
+			Name = "Server info", Description = "Shows the place id, player count and server id.", Tags = { "info" },
+			Run = function()
+				local ok, players = pcall(function()
+					return #svc("Players"):GetPlayers()
+				end)
+				local id = tostring(game.JobId or "")
+				local job = id ~= "" and id:sub(1, 8) or "studio"
+				note("Server info", "Place " .. tostring(game.PlaceId) .. "  |  Players " .. tostring(ok and players or "?") .. "  |  Server " .. job)
+			end,
+		},
+		{
+			Name = "Copy game link", Description = "Copies this game's Roblox page link so you can share it.", Tags = { "info", "tools" },
+			Run = function()
+				local link = "https://www.roblox.com/games/" .. tostring(game.PlaceId)
+				if I.copyText(link) then
+					note("Copied", link, "success")
+				else
+					note("Could not copy", "This place has no clipboard. The link is " .. link, "warning")
+				end
+			end,
+		},
+		{
+			Name = "Hide chat", Description = "Hides or shows the chat window. Run again to flip it.", Tags = { "screen" },
+			Run = function()
+				local sg = svc("StarterGui")
+				saved.ChatHidden = not saved.ChatHidden
+				sg:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, not saved.ChatHidden)
+				note("Chat", saved.ChatHidden and "Hidden." or "Showing.")
+			end,
+		},
+		{
+			Name = "Rejoin this server", Description = "Leaves and joins the same server again.", Tags = { "tools" },
+			Run = function()
+				local ok, err = pcall(function()
+					svc("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, I.LocalPlayer)
+				end)
+				if not ok then
+					error("Could not rejoin: " .. tostring(err), 0)
+				end
+			end,
+		},
+	}
 end
 
 end

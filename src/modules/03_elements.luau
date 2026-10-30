@@ -580,6 +580,12 @@ function Window:AddSettingsTab(opts)
 			},
 		})
 	end
+	tab:CreateSection({ Name = "Make your own" })
+	tab:CreateButton({ Name = "Create your own script hub (blocks)", Callback = function()
+		if Polaris.MakeHub then
+			Polaris.MakeHub()
+		end
+	end })
 	tab:CreateSection({ Name = "Window" })
 	tab:CreateButton({
 		Name = "Hide window (press the toggle key to bring it back)",

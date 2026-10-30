@@ -6,7 +6,7 @@ Script libraries, deep-research panels and Roblox hubs, from one line.
 loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/main/Polaris.luau"))().Start()
 ```
 
-That opens a screen of big coloured tiles. Tap a picture and the matching UI appears. Nothing to install, nothing to configure.
+That opens a screen of big coloured tiles and one wide button, "Create your own script hub". Tap a picture and the matching UI appears. The Script Hub tile is a working hub with ready-made scripts and a + Add button for your own. The wide button opens a block editor where blocks and Script blocks (your own code) build a hub you can export and share. Nothing to install, nothing to configure.
 
 Watch the 52 second tour: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4). Read the full walkthrough: [GUIDE.md](GUIDE.md).
 
@@ -15,6 +15,7 @@ Watch the 52 second tour: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.
 | Want | One line |
 |---|---|
 | Tile launcher for everyone | `Polaris.Start()` |
+| A hub built from blocks plus your own scripts | `Polaris.MakeHub()` |
 | A script library UI (search, tags, favourites) | `Polaris.Templates.ScriptLibrary({ Manifest = "https://.../scripts.json" })` |
 | A deep-research UI (plan, sources, cited report) | `Polaris.Templates.DeepResearch({ Provider = "Perplexity" })` |
 | A Roblox hub (live stats, FOV, time of day, output log) | `Polaris.Templates.RobloxHub({ Name = "My Hub" })` |
@@ -30,6 +31,7 @@ New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLib
 
 | Limit | What it means |
 |---|---|
+| Hub scripts | Eight built-in scripts (Fullbright, Wide view, Day or night, FPS counter, Server info, Copy game link, Hide chat, Rejoin). Camera, lighting and screen only. Not tried in a real client. |
 | Not tried in real Roblox | All 100+ checks run under Lune with a simulated Roblox. Rendering, dragging, touch and gamepad have not been seen on a real device. Test in Studio first. |
 | Web requests | Roblox clients block `HttpService`. Remote scripts, manifests and live research need an executor `request()` or a server with HttpService enabled. |
 | `loadstring` | Disabled in normal Studio LocalScripts. Remote scripts only run where `loadstring` exists. |

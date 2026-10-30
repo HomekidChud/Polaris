@@ -9,11 +9,26 @@ local function findAll(root, pred, out)
 	return out
 end
 
-check("Start builds six big tiles", function()
+check("Start builds five big tiles plus the Create your own hub banner", function()
 	local h = Polaris.Start()
 	local tiles = findAll(h.Gui, function(d) return d.Name == "Tile" end)
-	assert(#tiles == 6, "tiles " .. #tiles)
+	assert(#tiles == 5, "tiles " .. #tiles)
+	assert(#findAll(h.Gui, function(d) return d.Name == "MakeHub" end) == 1, "banner missing")
 	h:Close()
+	local h2 = Polaris.Start({ MakeHub = false })
+	assert(#findAll(h2.Gui, function(d) return d.Name == "MakeHub" end) == 0)
+	h2:Close()
+end)
+
+check("banner opens the block editor with the My Script Hub template", function()
+	local h = Polaris.Start()
+	findAll(h.Gui, function(d) return d.Name == "MakeHub" end)[1].Activated:Fire()
+	tasklib.wait(0.8)
+	local B = Polaris.Builder
+	assert(B:IsOpen() or B._splashGui, "builder did not open")
+	local proj = B:GetProject()
+	assert(proj.window.Name == "My Script Hub", proj.window.Name)
+	B:Close()
 end)
 
 check("tile tap opens the matching UI and closes launcher", function()

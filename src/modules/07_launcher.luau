@@ -126,17 +126,32 @@ function Polaris.Toy()
 end
 
 ----------------------------------------------------------------
+-- Make your own hub: the block editor, pre-loaded with a working script hub.
+-- Blocks build the hub; Script blocks hold your own code; Export gives a script you can share.
+----------------------------------------------------------------
+
+function Polaris.MakeHub(template)
+	local B = Polaris.Builder
+	B:LoadTemplate(template or "My Script Hub")
+	if B:IsOpen() then
+		B:_refreshAll()
+	else
+		B:Open()
+	end
+	return B
+end
+
+----------------------------------------------------------------
 -- Launcher
 ----------------------------------------------------------------
 
 local function defaultTiles()
 	local T = Polaris.Templates
 	return {
-		{ Name = "Scripts", Icon = "list", Color = Color3.fromRGB(66, 133, 244), Action = function() return T.ScriptLibrary() end },
+		{ Name = "Script Hub", Icon = "list", Color = Color3.fromRGB(66, 133, 244), Action = function() return T.ScriptLibrary({ Name = "Script Hub" }) end },
 		{ Name = "Research", Icon = "search", Color = Color3.fromRGB(150, 95, 235), Action = function() return T.DeepResearch() end },
 		{ Name = "Game Hub", Icon = "grid", Color = Color3.fromRGB(52, 168, 100), Action = function() return T.RobloxHub() end },
 		{ Name = "Everything", Icon = "rainbow", Color = Color3.fromRGB(240, 140, 40), Action = function() return T.Everything() end },
-		{ Name = "Build", Icon = "plus", Color = Color3.fromRGB(230, 80, 140), Action = function() return Polaris.Builder:Open() end },
 		{ Name = "Play", Icon = "dots", Color = Color3.fromRGB(235, 190, 40), Action = function() return Polaris.Toy() end },
 	}
 end
@@ -173,7 +188,7 @@ function Polaris.Start(opts)
 	local cell = math.floor((W - 40 - (cols - 1) * gap) / cols)
 	local cellH = math.min(cell, 168)
 	local scroll = Create("ScrollingFrame", {
-		Size = UDim2.new(1, -24, 1, -104), Position = UDim2.new(0, 12, 0, 96), BackgroundTransparency = 1, BorderSizePixel = 0,
+		Size = UDim2.new(1, -24, 1, opts.MakeHub == false and -104 or -184), Position = UDim2.new(0, 12, 0, 96), BackgroundTransparency = 1, BorderSizePixel = 0,
 		ScrollBarThickness = 5, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = card,
 	})
 	Create("UIGridLayout", { CellSize = UDim2.new(0, cell, 0, cellH), CellPadding = UDim2.new(0, gap, 0, gap), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll })
@@ -184,6 +199,28 @@ function Polaris.Start(opts)
 		if gui.Parent then
 			gui:Destroy()
 		end
+	end
+
+	if opts.MakeHub ~= false then
+		local banner = Create("TextButton", { Name = "MakeHub", Text = "", AutoButtonColor = false, BackgroundColor3 = Color3.fromRGB(230, 80, 140), BorderSizePixel = 0, Size = UDim2.new(1, -24, 0, 66), Position = UDim2.new(0, 12, 1, -78), Parent = card })
+		Create("UICorner", { CornerRadius = UDim.new(0, 18), Parent = banner })
+		local plus = Create("Frame", { Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(0, 16, 0.5, -20), BackgroundTransparency = 1, Parent = banner })
+		ICONS.plus(plus)
+		Kit.label(banner, "Create your own script hub", { Size = 24, Bold = true, Position = UDim2.new(0, 70, 0, 8), Width = 1, WidthOffset = -84, Height = 30, Color = Color3.new(1, 1, 1) })
+		Kit.label(banner, "Snap blocks together and add your own scripts", { Size = 14, Position = UDim2.new(0, 70, 0, 38), Width = 1, WidthOffset = -84, Height = 20, Color = Color3.fromRGB(255, 225, 240) })
+		banner.Activated:Connect(function()
+			Polaris.Confetti(gui, 30)
+			task.delay(0.35, function()
+				if not opts.Keep then
+					handle:Close()
+				end
+				local ok, err = pcall(Polaris.MakeHub)
+				if not ok then
+					warn("[Polaris] could not open the hub maker:", err)
+					Polaris:Notify({ Title = "Oops", Content = "The hub maker did not open. " .. tostring(err), Type = "error", Duration = 6 })
+				end
+			end)
+		end)
 	end
 
 	for i, tile in ipairs(tiles) do
