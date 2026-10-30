@@ -1,0 +1,9 @@
+# module load order
+01_util.luau
+02_kit.luau
+03_elements.luau
+04_library.luau
+05_research.luau
+06_easy.luau
+07_launcher.luau
+08_builder_kinds.luau

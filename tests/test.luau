@@ -62,7 +62,7 @@ end
 
 check("library loads and exposes API", function()
 	assert(type(Polaris) == "table", "Polaris is not a table")
-	assert(Polaris.Version == "1.2.3", "wrong version")
+	assert(Polaris.Version == "2.0.0", "wrong version")
 	assert(type(Polaris.CreateWindow) == "function")
 	assert(type(Polaris.Themes.Default) == "table")
 	assert(type(Polaris.Notify) == "function")
@@ -591,7 +591,7 @@ check("builder UI lifecycle", function()
 	assert(#B._columns == 1, "canvas should render one column per tab")
 	assert(#B._columns[1].blockFrames == 2, "default project has 2 blocks")
 	-- palette lists the block types
-	assert(#B._paletteButtons == 10, "palette should list 10 block types")
+	assert(#B._paletteButtons == #B.BlockDefs and #B.BlockDefs >= 10, "palette should list every block type")
 	B:Close()
 	assert(B:IsOpen() == false, "builder should be closed")
 	assert(B._gui == nil, "gui reference not cleared")
@@ -662,7 +662,7 @@ check("generated script executes against the mock", function()
 	local ok, err = pcall(chunk)
 	assert(ok, "generated code failed: " .. tostring(err))
 	local lib2 = env2.__LOADED_LIB
-	assert(type(lib2) == "table" and lib2.Version == "1.2.3", "loader did not return the library")
+	assert(type(lib2) == "table" and lib2.Version == "2.0.0", "loader did not return the library")
 	assert(#lib2._windows == 1, "generated script did not create a window")
 	local gen = lib2._windows[1]
 	assert(gen._config.Name == "CodeGenHub", "generated window has wrong name")

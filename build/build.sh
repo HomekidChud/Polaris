@@ -22,13 +22,15 @@ if [ ! -d build/prometheus ]; then
 	git clone --depth 1 https://github.com/prometheus-lua/Prometheus.git build/prometheus
 fi
 
+python3 build/bundle.py
+bash tests/run_all.sh src/Polaris.luau
 python3 build/prepare_lua51.py src/Polaris.luau build/intermediate.lua
 (cd build/prometheus && lua5.1 cli.lua --config ../cfg-final.lua --out ../Polaris.obfuscated.lua ../intermediate.lua)
 
 echo "-- verifying readable source"
-"$LUNE_BIN" run tests/test.luau src/Polaris.luau | tail -1
+echo "(done above)"
 echo "-- installing obfuscated artifact at the repo root and verifying it"
 VERSION=$(sed -n 's/^local PolarisVersion = "\(.*\)"$/\1/p' src/Polaris.luau)
 { echo "-- Polaris v$VERSION (obfuscated build). Readable source: src/Polaris.luau"; cat build/Polaris.obfuscated.lua; } > Polaris.luau
-"$LUNE_BIN" run tests/test.luau | tail -1
+bash tests/run_all.sh Polaris.luau
 echo "build ok - the published root Polaris.luau is the obfuscated build"

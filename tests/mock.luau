@@ -212,6 +212,13 @@ end
 
 function Instance:Destroy()
 	self._destroyed = true
+	local par = self._props.Parent
+	if par and par._children then
+		local i = table.find(par._children, self)
+		if i then
+			table.remove(par._children, i)
+		end
+	end
 	self._props.Parent = nil
 	for _, sig in self._signals do
 		for _, h in sig._handlers do
@@ -229,6 +236,18 @@ function Instance:GetChildren()
 	for _, c in self._children do
 		table.insert(out, c)
 	end
+	return out
+end
+
+function Instance:GetDescendants()
+	local out = {}
+	local function walk(n)
+		for _, c in n._children do
+			table.insert(out, c)
+			walk(c)
+		end
+	end
+	walk(self)
 	return out
 end
 
