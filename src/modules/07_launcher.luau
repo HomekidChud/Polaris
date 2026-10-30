@@ -82,6 +82,14 @@ local ICONS = {
 		bar(p, 0.4, 0.08, 0.2, 0.84)
 		bar(p, 0.08, 0.4, 0.84, 0.2)
 	end,
+	star = function(p)
+		bar(p, 0.4, 0.04, 0.2, 0.92)
+		bar(p, 0.04, 0.4, 0.92, 0.2)
+		local d1 = bar(p, 0.4, 0.14, 0.2, 0.72)
+		d1.Rotation = 45
+		local d2 = bar(p, 0.4, 0.14, 0.2, 0.72)
+		d2.Rotation = -45
+	end,
 	rainbow = function(p)
 		for i = 1, 5 do
 			bar(p, 0.04 + (i - 1) * 0.19, 0.5 - i * 0.07, 0.15, 0.3 + i * 0.07, RAINBOW[(i % #RAINBOW) + 1])
@@ -152,6 +160,7 @@ local function defaultTiles()
 		{ Name = "Research", Icon = "search", Color = Color3.fromRGB(150, 95, 235), Action = function() return T.DeepResearch() end },
 		{ Name = "Game Hub", Icon = "grid", Color = Color3.fromRGB(52, 168, 100), Action = function() return T.RobloxHub() end },
 		{ Name = "Everything", Icon = "rainbow", Color = Color3.fromRGB(240, 140, 40), Action = function() return T.Everything() end },
+		{ Name = "Make Anything", Icon = "star", Color = Color3.fromRGB(30, 160, 170), Action = function() return Polaris.Imaginer() end },
 		{ Name = "Play", Icon = "dots", Color = Color3.fromRGB(235, 190, 40), Action = function() return Polaris.Toy() end },
 	}
 end

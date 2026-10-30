@@ -62,7 +62,7 @@ end
 
 check("library loads and exposes API", function()
 	assert(type(Polaris) == "table", "Polaris is not a table")
-	assert(Polaris.Version == "2.0.0", "wrong version")
+	assert(Polaris.Version == "3.0.0", "wrong version")
 	assert(type(Polaris.CreateWindow) == "function")
 	assert(type(Polaris.Themes.Default) == "table")
 	assert(type(Polaris.Notify) == "function")
@@ -662,7 +662,7 @@ check("generated script executes against the mock", function()
 	local ok, err = pcall(chunk)
 	assert(ok, "generated code failed: " .. tostring(err))
 	local lib2 = env2.__LOADED_LIB
-	assert(type(lib2) == "table" and lib2.Version == "2.0.0", "loader did not return the library")
+	assert(type(lib2) == "table" and lib2.Version == "3.0.0", "loader did not return the library")
 	assert(#lib2._windows == 1, "generated script did not create a window")
 	local gen = lib2._windows[1]
 	assert(gen._config.Name == "CodeGenHub", "generated window has wrong name")

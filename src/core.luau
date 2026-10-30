@@ -45,7 +45,7 @@ if not LocalPlayer then
 	error("[Polaris] This library must run on the client (LocalPlayer is nil)", 0)
 end
 
-local PolarisVersion = "2.0.0"
+local PolarisVersion = "3.0.0"
 
 -- Optional executor filesystem API (only used if present)
 local FS = nil

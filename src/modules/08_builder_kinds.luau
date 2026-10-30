@@ -296,6 +296,117 @@ for _, def in ipairs({ "Script", "Label", "Progress", "Console", "Stats", "Scrip
 	table.insert(Builder.BlockDefs, { Kind = def, Label = Kinds[def].Label, Color = Kinds[def].Color })
 end
 
+
+----------------------------------------------------------------
+-- v3 kinds: Table, Chart, Image
+----------------------------------------------------------------
+local function csv(text)
+	local out = {}
+	for piece in tostring(text or ""):gmatch("[^,]+") do
+		local v = trim(piece)
+		if v ~= "" then table.insert(out, v) end
+	end
+	return out
+end
+local function numbers(text)
+	local out = {}
+	for _, v in ipairs(csv(text)) do table.insert(out, tonumber(v) or 0) end
+	return out
+end
+local function rowsOf(text)
+	local rows = {}
+	for chunk in tostring(text or ""):gmatch("[^;\n]+") do
+		local row = {}
+		for piece in (chunk .. "|"):gmatch("(.-)|") do table.insert(row, trim(piece)) end
+		if #row > 0 and row[1] ~= "" then table.insert(rows, row) end
+	end
+	return rows
+end
+local function luaList(list, asNumber)
+	local q = {}
+	for _, v in ipairs(list) do table.insert(q, asNumber and tostring(v) or quote(v)) end
+	return "{ " .. table.concat(q, ", ") .. " }"
+end
+local function luaRows(rows)
+	local q = {}
+	for _, r in ipairs(rows) do
+		local cells = {}
+		for _, c in ipairs(r) do table.insert(cells, tonumber(c) and tostring(tonumber(c)) or quote(c)) end
+		table.insert(q, "{ " .. table.concat(cells, ", ") .. " }")
+	end
+	return "{ " .. table.concat(q, ", ") .. " }"
+end
+local function typedRows(rows)
+	local out = {}
+	for _, r in ipairs(rows) do
+		local row = {}
+		for i, c in ipairs(r) do row[i] = tonumber(c) or c end
+		table.insert(out, row)
+	end
+	return out
+end
+
+Kinds.Table = {
+	Label = "Table", Color = Color3.fromRGB(100, 120, 190),
+	new = function() return { Kind = "Table", Name = "Table", Columns = "Name, Score", Rows = "Ada | 92 ; Bo | 85", Height = 180, Search = false } end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateTable({ Columns = " .. luaList(csv(n.Columns)) .. ", Rows = " .. luaRows(rowsOf(n.Rows)) .. ", Height = " .. tostring(tonumber(n.Height) or 180) .. ", Search = " .. tostring(n.Search == true) .. " })")
+	end,
+	apply = function(tab, n) tab:CreateTable({ Columns = csv(n.Columns), Rows = typedRows(rowsOf(n.Rows)), Height = tonumber(n.Height) or 180, Search = n.Search == true }) end,
+	item = function(n) return { Type = "Table", Columns = csv(n.Columns), Rows = typedRows(rowsOf(n.Rows)), Height = tonumber(n.Height) or 180, Search = n.Search == true } end,
+	props = function(b, n, H)
+		H.textbox(b, "Columns (comma list)", n.Columns, function(t) n.Columns = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.textbox(b, "Rows (a | b ; c | d)", n.Rows, function(t) n.Rows = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.numberBox("Height", n, "Height")
+	end,
+	validate = function(n, problem, label)
+		if #csv(n.Columns) == 0 then problem(label .. " table needs at least one column") end
+	end,
+}
+
+Kinds.Chart = {
+	Label = "Chart", Color = Color3.fromRGB(80, 170, 150),
+	new = function() return { Kind = "Chart", Name = "Chart", ChartType = "bar", Labels = "Mon, Tue, Wed, Thu", Values = "4, 7, 5, 9", Height = 180 } end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateChart({ Type = " .. quote(n.ChartType == "line" and "line" or "bar") .. ", Title = " .. quote(n.Name) .. ", Labels = " .. luaList(csv(n.Labels)) .. ", Values = " .. luaList(numbers(n.Values), true) .. ", Height = " .. tostring(tonumber(n.Height) or 180) .. " })")
+	end,
+	apply = function(tab, n) tab:CreateChart({ Type = n.ChartType == "line" and "line" or "bar", Title = n.Name, Labels = csv(n.Labels), Values = numbers(n.Values), Height = tonumber(n.Height) or 180 }) end,
+	item = function(n) return { Type = "Chart", Style = n.ChartType == "line" and "line" or "bar", Title = n.Name, Labels = csv(n.Labels), Values = numbers(n.Values), Height = tonumber(n.Height) or 180 } end,
+	props = function(b, n, H)
+		H.nameBox(n)
+		H.textbox(b, "Style (bar or line)", n.ChartType, function(t) n.ChartType = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.textbox(b, "Labels (comma list)", n.Labels, function(t) n.Labels = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.textbox(b, "Values (comma list)", n.Values, function(t) n.Values = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.numberBox("Height", n, "Height")
+	end,
+	validate = function(n, problem, label)
+		if n.ChartType ~= "bar" and n.ChartType ~= "line" then problem(label .. " chart style must be bar or line") end
+		if #csv(n.Values) == 0 then problem(label .. " chart needs some values") end
+	end,
+}
+
+Kinds.Image = {
+	Label = "Image", Color = Color3.fromRGB(190, 120, 90),
+	new = function() return { Kind = "Image", Name = "Picture", Image = "rbxassetid://0", Height = 120 } end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateImage({ Image = " .. quote(n.Image) .. ", Height = " .. tostring(tonumber(n.Height) or 120) .. ", Caption = " .. quote(n.Name) .. " })")
+	end,
+	apply = function(tab, n) tab:CreateImage({ Image = n.Image, Height = tonumber(n.Height) or 120, Caption = n.Name }) end,
+	item = function(n) return { Type = "Image", Image = n.Image, Height = tonumber(n.Height) or 120, Caption = n.Name } end,
+	props = function(b, n, H)
+		H.nameBox(n)
+		H.textbox(b, "Image (rbxassetid://123)", n.Image, function(t) n.Image = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.numberBox("Height", n, "Height")
+	end,
+	validate = function(n, problem, label)
+		if not tostring(n.Image):match("^rbxassetid://%d+$") then problem(label .. " image must look like rbxassetid://123456") end
+	end,
+}
+
+for _, def in ipairs({ "Table", "Chart", "Image" }) do
+	table.insert(Builder.BlockDefs, { Kind = def, Label = Kinds[def].Label, Color = Kinds[def].Color })
+end
+
 ----------------------------------------------------------------
 -- Templates
 ----------------------------------------------------------------
@@ -341,6 +452,18 @@ local TEMPLATES = {
 			{ Name = "Output", Icon = "", nodes = { { Kind = "Console", Name = "Output", Height = 220 } } },
 		})
 	end,
+	["Dashboard"] = function()
+		return proj("Dashboard", {
+			{ Name = "Overview", Icon = "", nodes = {
+				{ Kind = "Stats", Name = "Stats", Items = "FPS, Ping, Players, Memory" },
+				{ Kind = "Chart", Name = "This week", ChartType = "bar", Labels = "Mon, Tue, Wed, Thu, Fri", Values = "4, 7, 5, 9, 6", Height = 180 },
+				{ Kind = "Chart", Name = "Trend", ChartType = "line", Labels = "1, 2, 3, 4, 5, 6", Values = "2, 4, 3, 6, 5, 8", Height = 180 },
+			} },
+			{ Name = "Data", Icon = "", nodes = {
+				{ Kind = "Table", Name = "Players", Columns = "Name, Score, Rank", Rows = "Ada | 92 | 1 ; Bo | 85 | 2 ; Cy | 77 | 3", Height = 200, Search = true },
+			} },
+		})
+	end,
 	["Everything"] = function()
 		return proj("Everything Hub", {
 			{ Name = "Home", Icon = "", nodes = {
@@ -353,7 +476,7 @@ local TEMPLATES = {
 		})
 	end,
 }
-local TEMPLATE_ORDER = { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Everything" }
+local TEMPLATE_ORDER = { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Dashboard", "Everything" }
 
 function Builder:GetTemplateNames()
 	return table.clone(TEMPLATE_ORDER)

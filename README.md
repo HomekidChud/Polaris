@@ -1,4 +1,4 @@
-# Polaris 2.0
+# Polaris 3.0
 
 Script libraries, deep-research panels and Roblox hubs, from one line.
 
@@ -8,7 +8,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/HomekidChud/Polaris/m
 
 That opens a screen of big coloured tiles and one wide button, "Create your own script hub". Tap a picture and the matching UI appears. The Script Hub tile is a working hub with ready-made scripts and a + Add button for your own. The wide button opens a block editor where blocks and Script blocks (your own code) build a hub you can export and share. Nothing to install, nothing to configure.
 
-Watch the 52 second tour: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4). Read the full walkthrough: [GUIDE.md](GUIDE.md).
+Watch the 52 second tour (made for version 2, so it shows five launcher tiles): [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4). Read the full walkthrough: [GUIDE.md](GUIDE.md).
 
 ## What you get
 
@@ -25,8 +25,13 @@ Watch the 52 second tour: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.
 | A UI from a table | `Polaris.Hub({ Name = "Hi", Buttons = { Wave = function() print("wave") end } })` |
 | Drag and drop designer that exports code | `Polaris.Builder:Open()` |
 | Open a Builder project without code | `Polaris.FromProject(jsonText)` |
+| An app from a safe JSON spec | `Polaris.Spec.Build({ Name = "App", Tabs = { ... } })` |
+| An app from a sentence (demo offline, Perplexity with your key) | `Polaris.Imagine("a clicker game")` |
+| The Make Anything window | `Polaris.Imaginer()` |
+| Saved state that updates labels and inputs | `Polaris.State(0, { Persist = true })`, `label:Bind(state)` |
+| Your own element or Builder block | `Polaris.DefineElement(...)`, `Polaris.DefineBlock(...)` |
 
-New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLibrary, Research, CodeEditor. Add any of them with `tab:Add("Kind", { ... })`.
+New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLibrary, Research, CodeEditor, Group, Columns, Pages, Spacer, Image, Custom, Table, Chart, Form. Add any of them with `tab:Add("Kind", { ... })`.
 
 ## Honest limits
 
@@ -39,6 +44,8 @@ New elements on every tab: Label, Progress, Console, ButtonRow, Stats, ScriptLib
 | Clipboard and saving | Need executor functions (`setclipboard`, `writefile`). Otherwise the UI says so and keeps an in-memory copy. |
 | Live research | The Perplexity provider is written to the [official docs](https://docs.perplexity.ai/api-reference/agent-post.md) but has not been run against the live API. It needs your own key, typed into the masked box at run time and never stored. |
 | Demo provider | Returns placeholder text. It exists so the UI works with no key. |
+| Imagine | The Demo path is keyword matching. The Perplexity path is untested live and can only return a spec of safe actions, never code. |
+| v3 layout, tables, charts | Tested under Lune with a simulated Roblox only. |
 | Font | Gotham is the new default. It has not been checked visually. |
 | Obfuscation | The root `Polaris.luau` is obfuscated to deter casual copying. It is not protection. Readable source is `src/`. |
 | Scope | Safe dev tools only (FOV, time of day, output log, stats). No exploit features are included. |

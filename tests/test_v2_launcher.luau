@@ -9,10 +9,10 @@ local function findAll(root, pred, out)
 	return out
 end
 
-check("Start builds five big tiles plus the Create your own hub banner", function()
+check("Start builds six big tiles plus the Create your own hub banner", function()
 	local h = Polaris.Start()
 	local tiles = findAll(h.Gui, function(d) return d.Name == "Tile" end)
-	assert(#tiles == 5, "tiles " .. #tiles)
+	assert(#tiles == 6, "tiles " .. #tiles)
 	assert(#findAll(h.Gui, function(d) return d.Name == "MakeHub" end) == 1, "banner missing")
 	h:Close()
 	local h2 = Polaris.Start({ MakeHub = false })
@@ -44,6 +44,20 @@ check("failing tile does not crash", function()
 	local h = Polaris.Start({ Tiles = { { Name = "Bad", Icon = "plus", Action = function() error("boom") end } } })
 	findAll(h.Gui, function(d) return d.Name == "Tile" end)[1].Activated:Fire()
 	tasklib.wait(0.6)
+end)
+
+check("Make Anything tile opens the imaginer", function()
+	local h = Polaris.Start()
+	local tiles = findAll(h.Gui, function(d) return d.Name == "Tile" end)
+	local found
+	for _, t in tiles do
+		for _, d in findAll(t, function(x) return x._className == "TextLabel" and x.Text == "Make Anything" end) do found = t end
+	end
+	assert(found, "tile missing")
+	h:Close()
+	local m = Polaris.Imaginer()
+	assert(m and m.Window and m.Make)
+	m.Window:Destroy()
 end)
 
 check("default tiles open real windows", function()

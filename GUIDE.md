@@ -1,10 +1,10 @@
-# Polaris 2.0 Guide
+# Polaris 3.0 Guide
 
-Polaris builds script library UIs, deep-research UIs and Roblox hubs. You can start with one line and no coding.
+Polaris builds script library UIs, deep-research UIs and Roblox hubs, and since version 3 almost any other interface too: layouts, tables, charts, forms, saved state, plugins and apps described in words. You can start with one line and no coding.
 
-Watch the tour first: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4) (52 seconds, captions only, no sound). The slides in it are drawings of the layout, not screenshots of a live Roblox session.
+Watch the tour first: [docs/video/polaris-tour.mp4](docs/video/polaris-tour.mp4) (52 seconds, captions only, no sound). The slides in it are drawings of the layout, not screenshots of a live Roblox session. It was made for version 2 and shows five launcher tiles. Version 3 has a sixth, Make Anything.
 
-Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Mock executor](#mock-executor-window) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
+Contents: [Quick start](#quick-start-for-everyone) - [Toddler mode](#toddler-mode) - [Make your own hub](#make-your-own-script-hub-blocks-and-scripts) - [Script hub](#the-script-hub) - [Mock executor](#mock-executor-window) - [Script library](#script-library-ui) - [Deep research](#deep-research-ui) - [Roblox hub](#roblox-hub) - [Say what you want](#say-what-you-want) - [Plain-table hubs](#plain-table-hubs) - [Builder](#builder) - [Create anything (v3)](#create-anything-v3) - [Elements](#all-elements) - [Research providers](#research-providers) - [Troubleshooting](#troubleshooting) - [Capabilities and limits](#capabilities-and-limits)
 
 ## Quick start for everyone
 
@@ -364,6 +364,10 @@ Every element works the same way: `tab:CreateX({ ... })`, or `tab:Add("X", { ...
 | Stats (new) | `Items`, `Columns`, `Interval` |
 | ScriptLibrary (new) | `Scripts`, `Library`, `Manifest`, `TrustedHosts`, `Confirm`, `Folder`, `Height`, `OnRun` |
 | Research (new) | `Provider`, `Depth`, `Depths`, `Height`, `Session` |
+| Group (v3) | `Name`, `Card`, `Collapsible`, `Open`; it is also a tab |
+| Columns, Pages (v3) | `Count`, `Gap`; `Names`, `Default`, `Callback` |
+| Spacer, Image, Custom (v3) | `Height`; `Image`, `Fit`, `Caption`; `Build(frame, ctx)` |
+| Table, Chart, Form (v3) | see Create anything |
 
 `Height = "Fill"` makes a big widget fill the rest of the tab.
 
@@ -396,6 +400,152 @@ See [Deep research UI](#deep-research-ui). A summary of what is verified:
 | A window is gone | Press RightShift, or tap the floating P. |
 | Text looks odd | The new default font is Gotham and has not been visually checked. Set `Polaris.Font = Enum.Font.SourceSans` before creating windows. |
 
+## Create anything (v3)
+
+Version 3 turns Polaris from a set of ready-made UIs into a kit you can build almost any interface from. The loadstring line did not change. There are four new layers, and each one works on its own.
+
+| Layer | What it gives you |
+|---|---|
+| Layout | Group, Card, Accordion, Columns, Pages, Spacer, Image, Custom |
+| Data | Table, Chart, Form, CodeEditor |
+| State and plugins | State, Computed, Storage, Bind, Link, DefineElement, DefineBlock, Use |
+| Say it | A safe JSON spec, `Polaris.Imagine("...")` and the Make Anything tile |
+
+### Layout
+
+```lua
+local Window = Polaris:CreateWindow({ Name = "Layouts" })
+local tab = Window:CreateTab({ Name = "Home" })
+
+local card = tab:CreateGroup({ Name = "Player", Card = true })          -- a boxed group
+card:CreateLabel({ Text = "Hello" })
+
+local more = tab:CreateGroup({ Name = "More", Collapsible = true, Open = false })  -- an accordion
+more:CreateToggle({ Name = "Extra", Default = true })
+
+local cols = tab:CreateColumns({ Count = 2 })                           -- cols[1], cols[2] are groups
+cols[1]:CreateButton({ Name = "Left" })
+cols[2]:CreateButton({ Name = "Right" })
+
+local pages = tab:CreatePages({ Names = { "One", "Two" }, Default = "One" })
+pages.Pages.Two:CreateLabel({ Text = "Second page" })
+pages:Select("Two")
+
+tab:CreateSpacer({ Height = 8 })
+tab:CreateImage({ Image = "rbxassetid://123456", Height = 100, Caption = "Logo" })
+```
+
+A group is also a tab, so everything you can put on a tab fits inside a group, a column or a page, and groups nest.
+
+Custom draws anything with plain Roblox instances and still sits in the layout:
+
+```lua
+tab:CreateCustom({ Height = 60, Build = function(frame, ctx)
+	local box = ctx.Create("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = ctx.Theme().Accent, Parent = frame })
+end })
+```
+
+`ctx` has `Frame`, `Window`, `Create`, `Kit`, `Polaris`, `Theme()` and `SetHeight(n)`. If your function errors, the box shows the message instead of breaking the window.
+
+### Data
+
+```lua
+local table1 = tab:CreateTable({ Columns = { "Name", "Score" }, Rows = { { "Ada", 92 }, { "Bo", 85 } },
+	Sortable = true, Search = true, Height = 180 })
+table1:AddRow({ "Cy", 77 })
+print(table1:Count(), table1:GetRows()[1][1])
+
+tab:CreateChart({ Type = "bar", Title = "Week", Labels = { "Mon", "Tue", "Wed" }, Values = { 4, 7, 5 } })
+local live = tab:CreateChart({ Type = "line", Title = "FPS", MaxPoints = 30 })
+live:AddPoint(60)
+
+tab:CreateForm({ Name = "New player", Fields = {
+	{ Name = "Player", Type = "Textbox", Required = true },
+	{ Name = "Score", Type = "Slider", Min = 0, Max = 100, Default = 50 },
+}, Submit = "Add", Callback = function(values) table1:AddRow({ values.Player, values.Score }) end })
+```
+
+Table methods: `SetRows`, `AddRow`, `RemoveRow`, `Clear`, `GetRows`, `Count`, `GetSelected`, `Sort`, `SetFilter`, `GetView`. Chart methods: `SetData`, `SetSeries`, `AddPoint`. A form has `GetValues`, `SetValues`, `Reset`, `Validate` and `Submit`.
+
+### State, saving and plugins
+
+```lua
+local score = Polaris.State(0, { Persist = true, Folder = "MyGame" })   -- saved between sessions where files exist
+local label = tab:CreateLabel({ Text = "Score: 0" })
+label:Bind(score, function(v) return "Score: " .. v end)               -- label follows the state
+score:Update(function(v) return v + 1 end)
+
+local slider = tab:CreateSlider({ Name = "Volume", Min = 0, Max = 10, Default = 5 })
+local volume = Polaris.State(5)
+slider:Link(volume)                                                      -- two-way
+
+local double = Polaris.Computed({ score }, function(s) return s * 2 end)
+```
+
+State has `Get`, `Set`, `Update`, `Subscribe`, `Map` and `Destroy`. `Polaris.Storage(folder)` is the same save box on its own: `Get`, `Set`, `Delete`, `Keys`, `IsPersistent`. Without file functions it keeps values in memory for the session.
+
+Make your own element type, share a bundle of them, or add a block to the Builder:
+
+```lua
+Polaris.DefineElement("Badge", {
+	Height = 28,
+	Default = "New",
+	Build = function(frame, config, element, ctx) ... end,   -- draw it
+	Set = function(self, value) ... end,
+})
+tab:CreateBadge({ Text = "Hot" })   -- also works as tab:Add("Badge", {...})
+
+Polaris.Use(function(P) P.DefineElement("Another", { ... }) end)   -- a plugin is a function or a table of the same helpers
+Polaris.DefineBlock("Banner", { Label = "Banner", new = ..., emit = ..., apply = ..., item = ..., props = ... })
+```
+
+You cannot override a built-in element name. Look at `src/modules/08_builder_kinds.luau` for complete block examples (Table, Chart and Image are good small ones).
+
+### Spec: a whole app as safe JSON
+
+A spec is plain data. It is the one format that people, the Builder and an AI can all hand to Polaris without running anything.
+
+```lua
+local app = Polaris.Spec.Build({
+	Name = "Clicker",
+	State = { count = 0 },
+	Tabs = { { Name = "Play", Items = {
+		{ Type = "Label", Text = "Clicks: {count}" },
+		{ Type = "Progress", Name = "Goal", Max = 10, Key = "count" },
+		{ Type = "Button", Name = "Click me", Action = { Do = "Add", Key = "count", Value = 1 } },
+		{ Type = "Button", Name = "Reset", Action = { Do = "Reset", Key = "count" } },
+	} } },
+})
+print(app.Problems) -- anything that was dropped, with the reason
+```
+
+The app gives you `Window`, `States`, `Tabs`, `Ids`, `Elements`, `Problems`, `GetState`, `SetState`, `ToJSON`, `Destroy` and `RunAction`. `{key}` inside a label shows a state value. A keyed input (for example a Toggle with `Key = "sound"`) links to that state automatically.
+
+Item types: Button, Chart, Columns, Dropdown, Form, Group, HubScripts, Image, Label, Pages, Progress, Section, Slider, Spacer, Stats, Table, Textbox and Toggle. Run `print(Polaris.Spec.Describe())` for the exact list with every option.
+
+Safe actions: Notify, Set, Add, Toggle, Reset, Copy, Goto, Theme, Run (only the built-in hub script names), AddRow, ClearTable, and any action you register in `Polaris.Actions`. A list of actions runs in order. A spec can never hold code, links or function text: `Spec.Validate` removes them and lists each in `Problems`. Limits: 12 tabs, 250 items, 4 levels deep, 2000 characters per text. To add behaviour a spec cannot express, register your own action first:
+
+```lua
+Polaris.Actions.Ping = function(args, ctx) print("pong", args.Who) end
+-- { Do = "Ping", Args = { Who = "me" } }
+```
+
+### Imagine: describe it, get it
+
+```lua
+Polaris.Imagine("a dashboard with a chart and a settings tab")       -- offline demo provider
+Polaris.Imagine("a clicker game", { Provider = "Perplexity", ApiKey = "YOUR_KEY" })
+local app, problems, spec = Polaris.Imagine("a tracker", { Build = false })   -- only validate, do not open
+```
+
+Tap the teal Make Anything tile in the launcher (or run `Polaris.Imaginer()`) to get a window with a prompt box, a provider dropdown, a key box, and the buttons Make it, Show spec, Copy spec and Close it. The Ideas tab has six example prompts.
+
+How it stays safe: the provider must answer with a spec. Polaris cuts out any code fence or chatter, validates the spec against the whitelist above, and if something is wrong it asks once more with the problems listed. Nothing the AI writes is ever run as code. The Demo provider is plain keyword matching (counter, dashboard, tracker, settings, hub, about) and gives starter layouts. The Perplexity provider is written to the official API docs but has not been run against the live service. Your key stays in memory only.
+
+### What this means by anything
+
+You can now build any interface made from these parts, or from your own parts through Custom and DefineElement, and wire it with state and the safe actions. That covers hubs, dashboards, trackers, settings screens, forms, tools and small games with a clicker style loop. It still does not mean any program: Polaris draws UI inside Roblox. It does not run outside Roblox, does not write game logic for you beyond the safe action list, and cannot be an executor.
+
 ## Capabilities and limits
 
 ### It can
@@ -408,6 +558,8 @@ See [Deep research UI](#deep-research-ui). A summary of what is verified:
 - Show live stats, a progress bar, a console and a field of view and time of day control.
 - Switch themes live and save configs where files are available.
 - Fit small screens and add a floating button on touch devices.
+- Lay out cards, columns, pages and accordions, show tables, charts and forms, keep saved state, and add your own element types and Builder blocks.
+- Turn a safe JSON spec, or a sentence, into a working window with `Polaris.Spec.Build` and `Polaris.Imagine`.
 
 ### It cannot, or has not been shown to
 
@@ -418,7 +570,10 @@ See [Deep research UI](#deep-research-ui). A summary of what is verified:
 | `loadstring` | Needs a host that allows it. |
 | Files and clipboard | Need executor functions. Without them, saving falls back to memory for the session. |
 | Live research | Perplexity provider untested against the live API. Answers are only as good as the provider. |
-| Intent matching | `Polaris.Make` is keyword matching. |
+| Intent matching | `Polaris.Make` and the Demo Imagine provider are keyword matching. |
+| Imagine with AI | The Perplexity path is untested against the live API, needs your own key, and can only produce a spec of safe actions, never code. |
+| Layout, tables and charts | New in v3 and only tested under Lune with a simulated Roblox. Check them in Studio before shipping. |
+| Anything | Anything means any UI from the element set, your own elements and raw instances. It does not mean any program. |
 | Script block code | Runs with your executor's full permissions. The editor can only check it for mistakes where `loadstring` exists. The preview never runs it. |
 | Security | Obfuscation deters casual copying and nothing more. Any script you load with the library runs with full permissions of your executor, so only add scripts you trust. |
 | Executor exploits | Not included. `Polaris.MockExecutor()` is a mock-up window only: it does not attach to Roblox, inject or bypass anti-cheat, and Polaris cannot be turned into an executor, because an executor is native software outside Luau. |

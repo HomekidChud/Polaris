@@ -46,7 +46,7 @@ if not LocalPlayer then
 	error("[Polaris] This library must run on the client (LocalPlayer is nil)", 0)
 end
 
-local PolarisVersion = "2.0.0"
+local PolarisVersion = "3.0.0"
 
 -- Optional executor filesystem API (only used if present)
 local FS = nil
@@ -8437,6 +8437,14 @@ local ICONS = {
 		bar(p, 0.4, 0.08, 0.2, 0.84)
 		bar(p, 0.08, 0.4, 0.84, 0.2)
 	end,
+	star = function(p)
+		bar(p, 0.4, 0.04, 0.2, 0.92)
+		bar(p, 0.04, 0.4, 0.92, 0.2)
+		local d1 = bar(p, 0.4, 0.14, 0.2, 0.72)
+		d1.Rotation = 45
+		local d2 = bar(p, 0.4, 0.14, 0.2, 0.72)
+		d2.Rotation = -45
+	end,
 	rainbow = function(p)
 		for i = 1, 5 do
 			bar(p, 0.04 + (i - 1) * 0.19, 0.5 - i * 0.07, 0.15, 0.3 + i * 0.07, RAINBOW[(i % #RAINBOW) + 1])
@@ -8507,6 +8515,7 @@ local function defaultTiles()
 		{ Name = "Research", Icon = "search", Color = Color3.fromRGB(150, 95, 235), Action = function() return T.DeepResearch() end },
 		{ Name = "Game Hub", Icon = "grid", Color = Color3.fromRGB(52, 168, 100), Action = function() return T.RobloxHub() end },
 		{ Name = "Everything", Icon = "rainbow", Color = Color3.fromRGB(240, 140, 40), Action = function() return T.Everything() end },
+		{ Name = "Make Anything", Icon = "star", Color = Color3.fromRGB(30, 160, 170), Action = function() return Polaris.Imaginer() end },
 		{ Name = "Play", Icon = "dots", Color = Color3.fromRGB(235, 190, 40), Action = function() return Polaris.Toy() end },
 	}
 end
@@ -8910,6 +8919,117 @@ for _, def in ipairs({ "Script", "Label", "Progress", "Console", "Stats", "Scrip
 	table.insert(Builder.BlockDefs, { Kind = def, Label = Kinds[def].Label, Color = Kinds[def].Color })
 end
 
+
+----------------------------------------------------------------
+-- v3 kinds: Table, Chart, Image
+----------------------------------------------------------------
+local function csv(text)
+	local out = {}
+	for piece in tostring(text or ""):gmatch("[^,]+") do
+		local v = trim(piece)
+		if v ~= "" then table.insert(out, v) end
+	end
+	return out
+end
+local function numbers(text)
+	local out = {}
+	for _, v in ipairs(csv(text)) do table.insert(out, tonumber(v) or 0) end
+	return out
+end
+local function rowsOf(text)
+	local rows = {}
+	for chunk in tostring(text or ""):gmatch("[^;\n]+") do
+		local row = {}
+		for piece in (chunk .. "|"):gmatch("(.-)|") do table.insert(row, trim(piece)) end
+		if #row > 0 and row[1] ~= "" then table.insert(rows, row) end
+	end
+	return rows
+end
+local function luaList(list, asNumber)
+	local q = {}
+	for _, v in ipairs(list) do table.insert(q, asNumber and tostring(v) or quote(v)) end
+	return "{ " .. table.concat(q, ", ") .. " }"
+end
+local function luaRows(rows)
+	local q = {}
+	for _, r in ipairs(rows) do
+		local cells = {}
+		for _, c in ipairs(r) do table.insert(cells, tonumber(c) and tostring(tonumber(c)) or quote(c)) end
+		table.insert(q, "{ " .. table.concat(cells, ", ") .. " }")
+	end
+	return "{ " .. table.concat(q, ", ") .. " }"
+end
+local function typedRows(rows)
+	local out = {}
+	for _, r in ipairs(rows) do
+		local row = {}
+		for i, c in ipairs(r) do row[i] = tonumber(c) or c end
+		table.insert(out, row)
+	end
+	return out
+end
+
+Kinds.Table = {
+	Label = "Table", Color = Color3.fromRGB(100, 120, 190),
+	new = function() return { Kind = "Table", Name = "Table", Columns = "Name, Score", Rows = "Ada | 92 ; Bo | 85", Height = 180, Search = false } end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateTable({ Columns = " .. luaList(csv(n.Columns)) .. ", Rows = " .. luaRows(rowsOf(n.Rows)) .. ", Height = " .. tostring(tonumber(n.Height) or 180) .. ", Search = " .. tostring(n.Search == true) .. " })")
+	end,
+	apply = function(tab, n) tab:CreateTable({ Columns = csv(n.Columns), Rows = typedRows(rowsOf(n.Rows)), Height = tonumber(n.Height) or 180, Search = n.Search == true }) end,
+	item = function(n) return { Type = "Table", Columns = csv(n.Columns), Rows = typedRows(rowsOf(n.Rows)), Height = tonumber(n.Height) or 180, Search = n.Search == true } end,
+	props = function(b, n, H)
+		H.textbox(b, "Columns (comma list)", n.Columns, function(t) n.Columns = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.textbox(b, "Rows (a | b ; c | d)", n.Rows, function(t) n.Rows = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.numberBox("Height", n, "Height")
+	end,
+	validate = function(n, problem, label)
+		if #csv(n.Columns) == 0 then problem(label .. " table needs at least one column") end
+	end,
+}
+
+Kinds.Chart = {
+	Label = "Chart", Color = Color3.fromRGB(80, 170, 150),
+	new = function() return { Kind = "Chart", Name = "Chart", ChartType = "bar", Labels = "Mon, Tue, Wed, Thu", Values = "4, 7, 5, 9", Height = 180 } end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateChart({ Type = " .. quote(n.ChartType == "line" and "line" or "bar") .. ", Title = " .. quote(n.Name) .. ", Labels = " .. luaList(csv(n.Labels)) .. ", Values = " .. luaList(numbers(n.Values), true) .. ", Height = " .. tostring(tonumber(n.Height) or 180) .. " })")
+	end,
+	apply = function(tab, n) tab:CreateChart({ Type = n.ChartType == "line" and "line" or "bar", Title = n.Name, Labels = csv(n.Labels), Values = numbers(n.Values), Height = tonumber(n.Height) or 180 }) end,
+	item = function(n) return { Type = "Chart", Style = n.ChartType == "line" and "line" or "bar", Title = n.Name, Labels = csv(n.Labels), Values = numbers(n.Values), Height = tonumber(n.Height) or 180 } end,
+	props = function(b, n, H)
+		H.nameBox(n)
+		H.textbox(b, "Style (bar or line)", n.ChartType, function(t) n.ChartType = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.textbox(b, "Labels (comma list)", n.Labels, function(t) n.Labels = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.textbox(b, "Values (comma list)", n.Values, function(t) n.Values = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.numberBox("Height", n, "Height")
+	end,
+	validate = function(n, problem, label)
+		if n.ChartType ~= "bar" and n.ChartType ~= "line" then problem(label .. " chart style must be bar or line") end
+		if #csv(n.Values) == 0 then problem(label .. " chart needs some values") end
+	end,
+}
+
+Kinds.Image = {
+	Label = "Image", Color = Color3.fromRGB(190, 120, 90),
+	new = function() return { Kind = "Image", Name = "Picture", Image = "rbxassetid://0", Height = 120 } end,
+	emit = function(v, n, _, L)
+		table.insert(L, v .. ":CreateImage({ Image = " .. quote(n.Image) .. ", Height = " .. tostring(tonumber(n.Height) or 120) .. ", Caption = " .. quote(n.Name) .. " })")
+	end,
+	apply = function(tab, n) tab:CreateImage({ Image = n.Image, Height = tonumber(n.Height) or 120, Caption = n.Name }) end,
+	item = function(n) return { Type = "Image", Image = n.Image, Height = tonumber(n.Height) or 120, Caption = n.Name } end,
+	props = function(b, n, H)
+		H.nameBox(n)
+		H.textbox(b, "Image (rbxassetid://123)", n.Image, function(t) n.Image = tostring(t); b:_refreshCanvas(); b:_refreshExport() end)
+		H.numberBox("Height", n, "Height")
+	end,
+	validate = function(n, problem, label)
+		if not tostring(n.Image):match("^rbxassetid://%d+$") then problem(label .. " image must look like rbxassetid://123456") end
+	end,
+}
+
+for _, def in ipairs({ "Table", "Chart", "Image" }) do
+	table.insert(Builder.BlockDefs, { Kind = def, Label = Kinds[def].Label, Color = Kinds[def].Color })
+end
+
 ----------------------------------------------------------------
 -- Templates
 ----------------------------------------------------------------
@@ -8955,6 +9075,18 @@ local TEMPLATES = {
 			{ Name = "Output", Icon = "", nodes = { { Kind = "Console", Name = "Output", Height = 220 } } },
 		})
 	end,
+	["Dashboard"] = function()
+		return proj("Dashboard", {
+			{ Name = "Overview", Icon = "", nodes = {
+				{ Kind = "Stats", Name = "Stats", Items = "FPS, Ping, Players, Memory" },
+				{ Kind = "Chart", Name = "This week", ChartType = "bar", Labels = "Mon, Tue, Wed, Thu, Fri", Values = "4, 7, 5, 9, 6", Height = 180 },
+				{ Kind = "Chart", Name = "Trend", ChartType = "line", Labels = "1, 2, 3, 4, 5, 6", Values = "2, 4, 3, 6, 5, 8", Height = 180 },
+			} },
+			{ Name = "Data", Icon = "", nodes = {
+				{ Kind = "Table", Name = "Players", Columns = "Name, Score, Rank", Rows = "Ada | 92 | 1 ; Bo | 85 | 2 ; Cy | 77 | 3", Height = 200, Search = true },
+			} },
+		})
+	end,
 	["Everything"] = function()
 		return proj("Everything Hub", {
 			{ Name = "Home", Icon = "", nodes = {
@@ -8967,7 +9099,7 @@ local TEMPLATES = {
 		})
 	end,
 }
-local TEMPLATE_ORDER = { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Everything" }
+local TEMPLATE_ORDER = { "My Script Hub", "Script Library", "Deep Research", "Roblox Hub", "Dashboard", "Everything" }
 
 function Builder:GetTemplateNames()
 	return table.clone(TEMPLATE_ORDER)
@@ -9332,6 +9464,2051 @@ function Polaris.MockExecutor(opts)
 	setTab:CreateLabel({ Text = "Off by default. In mock mode the Execute button only checks the text and says what it would do. Live mode needs loadstring from an executor you already run; this window never attaches to anything.", Size = 13, Color = "SubText" })
 	setTab:CreateButton({ Name = "Create your own script hub (blocks)", Callback = function() Polaris.MakeHub() end })
 
+	return self
+end
+
+end
+
+----------------------------------------------------------------
+-- module: 11_layout.luau
+----------------------------------------------------------------
+do
+-- layout: Group / Card / Accordion, Columns, Pages, Spacer, Image and Custom (raw Instances).
+-- A Group behaves like a Tab: every tab:CreateX / tab:Add works on it, and groups nest.
+
+local Create, themed, Element, Tab = I.Create, I.themed, I.Element, I.Tab
+local Kit = Polaris.Kit
+local GAP = 4
+
+-- Group objects inherit the element methods first (Get, SetVisible, Destroy ...) and the Tab methods second (CreateX ...).
+local GroupClass = setmetatable({}, { __index = function(_, k)
+	local v = Element[k]
+	if v ~= nil then return v end
+	return Tab[k]
+end })
+GroupClass.__index = GroupClass
+
+local function sumHeight(self)
+	local total = 0
+	for _, el in self._elements do
+		if el._container and el._container.Visible then
+			total += el._container.Size.Y.Offset + GAP
+		end
+	end
+	for _, s in self._sections do
+		if s._container and s._container.Visible then
+			total += s._container.Size.Y.Offset + GAP
+		end
+	end
+	return math.max(0, total - GAP)
+end
+
+function GroupClass:_updateCanvas()
+	if self._destroyed then return end
+	local h = sumHeight(self)
+	self._contentH = h
+	if self._content then
+		self._content.Size = UDim2.new(1, self._contentInset or 0, 0, h)
+	end
+	if self._onResize then
+		self._onResize(h)
+	end
+end
+
+-- A bare group (no element container of its own). Used inside Columns and Pages.
+local function bareGroup(window, host, inset)
+	local self = setmetatable({ _window = window, _elements = {}, _sections = {}, _isGroup = true, _destroyed = false }, GroupClass)
+	self._content = Create("Frame", { Name = "GroupContent", Size = UDim2.new(1, inset or 0, 0, 0), BackgroundTransparency = 1, Parent = host })
+	self._contentInset = inset or 0
+	Create("UIListLayout", { Padding = UDim.new(0, GAP), SortOrder = Enum.SortOrder.LayoutOrder, Parent = self._content })
+	return self
+end
+
+function GroupClass:Destroy()
+	if self._destroyed then return end
+	for i = #self._elements, 1, -1 do
+		local el = self._elements[i]
+		if el and el.Destroy then pcall(el.Destroy, el) end
+	end
+	Element.Destroy(self)
+	self._destroyed = true
+end
+
+function GroupClass:SetOpen(open)
+	if not self._collapsible then return end
+	self._open = open == true
+	if self._content then self._content.Visible = self._open end
+	if self._chevron then self._chevron.Text = self._open and "v" or ">" end
+	self:_updateCanvas()
+end
+
+function GroupClass:IsOpen()
+	return self._open ~= false
+end
+
+-- config: Name (title), Card (rounded panel), Collapsible (needs Name), Open (default true)
+function Tab:CreateGroup(config)
+	if type(config) == "string" then config = { Name = config } end
+	config = config or {}
+	local parent = self
+	local el = Element._new(parent._window, parent, config, "Group")
+	setmetatable(el, GroupClass)
+	el._elements, el._sections, el._isGroup = {}, {}, true
+	local card = config.Card == true
+	local title = config.Name and tostring(config.Name) or nil
+	local pad = card and 8 or 0
+	local headerH = title and 26 or 0
+	el._collapsible = config.Collapsible == true and title ~= nil
+	el._open = config.Open ~= false
+	el._title = title
+
+	local container = Kit.frame(parent._content, {
+		Name = "Group", Color = "Secondary", Radius = card and 8 or 0, Stroke = card, Transparency = card and 0 or 1,
+		Size = UDim2.new(1, 0, 0, headerH),
+	})
+	el._container = container
+	if title then
+		if el._collapsible then
+			el._header = Kit.button(container, (el._open and "v  " or ">  ") .. title, {
+				Name = "GroupHeader", Color = "Primary", TextColor = "Text", Size = UDim2.new(1, -pad * 2, 0, headerH),
+				Position = UDim2.new(0, pad, 0, card and 8 or 0), TextSize = 14,
+				OnClick = function() el:SetOpen(not el._open) end,
+			})
+			el._header.TextXAlignment = Enum.TextXAlignment.Left
+		else
+			el._header = Kit.label(container, title, { Name = "GroupTitle", Bold = true, Size = 15, Height = headerH,
+				Position = UDim2.new(0, pad, 0, card and 8 or 0), WidthOffset = -pad * 2 })
+		end
+	end
+	local top = (card and 8 or 0) + (title and headerH + GAP or 0)
+	local content = Create("Frame", { Name = "GroupContent", Size = UDim2.new(1, -pad * 2, 0, 0), Position = UDim2.new(0, pad, 0, top),
+		BackgroundTransparency = 1, Visible = el._open, Parent = container })
+	Create("UIListLayout", { Padding = UDim.new(0, GAP), SortOrder = Enum.SortOrder.LayoutOrder, Parent = content })
+	el._content, el._contentInset = content, -pad * 2
+
+	el._onResize = function(h)
+		local bottom = card and 8 or 0
+		local total
+		if el._open then
+			total = top + h + bottom
+		else
+			total = (card and 8 or 0) + headerH + bottom
+		end
+		container.Size = UDim2.new(1, 0, 0, total)
+		parent:_updateCanvas()
+	end
+	function el:SetOpen(open)
+		if not self._collapsible then return end
+		self._open = open == true
+		self._content.Visible = self._open
+		self._header.Text = (self._open and "v  " or ">  ") .. self._title
+		self:_updateCanvas()
+	end
+	function el:SetTitle(text)
+		self._title = tostring(text)
+		if self._header then
+			self._header.Text = (self._collapsible and ((self._open and "v  ") or ">  ") or "") .. self._title
+		end
+	end
+	el:_updateCanvas()
+	return el
+end
+
+----------------------------------------------------------------
+-- Columns: side-by-side groups.  cols[1], cols[2] ... or cols.Columns[i]
+----------------------------------------------------------------
+local ColumnsClass = Polaris._newClass()
+
+function ColumnsClass:Destroy()
+	if self._destroyed then return end
+	for _, col in ipairs(self.Columns or {}) do
+		for i = #col._elements, 1, -1 do
+			local el = col._elements[i]
+			if el and el.Destroy then pcall(el.Destroy, el) end
+		end
+	end
+	Element.Destroy(self)
+end
+
+function Tab:CreateColumns(config)
+	if type(config) == "number" then config = { Count = config } end
+	config = config or {}
+	local parent = self
+	local n = math.max(1, math.min(6, math.floor(tonumber(config.Count) or 2)))
+	local gap = tonumber(config.Gap) or 8
+	local el = Element._new(parent._window, parent, config, "Columns")
+	setmetatable(el, ColumnsClass)
+	local container = Create("Frame", { Name = "Columns", Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, Parent = parent._content })
+	el._container = container
+	el.Columns = {}
+	local hosts = {}
+	local function recompute()
+		local tallest = 0
+		for _, col in ipairs(el.Columns) do
+			tallest = math.max(tallest, col._contentH or 0)
+		end
+		for _, host in ipairs(hosts) do
+			host.Size = UDim2.new(1 / n, -gap * (n - 1) / n, 0, tallest)
+		end
+		container.Size = UDim2.new(1, 0, 0, tallest)
+		parent:_updateCanvas()
+	end
+	for i = 1, n do
+		local host = Create("Frame", {
+			Name = "Column" .. i, BackgroundTransparency = 1,
+			Size = UDim2.new(1 / n, -gap * (n - 1) / n, 0, 0),
+			Position = UDim2.new((i - 1) / n, (i - 1) * gap / n, 0, 0), Parent = container,
+		})
+		hosts[i] = host
+		local col = bareGroup(parent._window, host, 0)
+		col._onResize = recompute
+		el.Columns[i] = col
+		el[i] = col
+	end
+	recompute()
+	return el
+end
+
+----------------------------------------------------------------
+-- Pages: a row of buttons that switches between groups
+----------------------------------------------------------------
+local PagesClass = Polaris._newClass()
+
+function PagesClass:Destroy()
+	if self._destroyed then return end
+	for _, g in pairs(self.Pages or {}) do
+		for i = #g._elements, 1, -1 do
+			local el = g._elements[i]
+			if el and el.Destroy then pcall(el.Destroy, el) end
+		end
+	end
+	Element.Destroy(self)
+end
+
+function PagesClass:_setValue(name)
+	name = tostring(name)
+	if not self.Pages[name] then return end
+	self._value = name
+	for pageName, g in pairs(self.Pages) do
+		g._host.Visible = pageName == name
+		local b = self._buttons[pageName]
+		if b then
+			Kit.paint(b, "BackgroundColor3", pageName == name and "Accent" or "Primary")
+		end
+	end
+	self:_recompute()
+end
+
+function PagesClass:Select(name, silent)
+	self:Set(name, silent)
+end
+
+-- config: Names = { "One", "Two" }, Default
+function Tab:CreatePages(config)
+	config = config or {}
+	local names = config.Names or {}
+	assert(#names > 0, "[Polaris] CreatePages needs Names = { ... }")
+	local parent = self
+	local el = Element._new(parent._window, parent, config, "Pages")
+	setmetatable(el, PagesClass)
+	local container = Create("Frame", { Name = "Pages", Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Parent = parent._content })
+	el._container = container
+	el.Pages, el._buttons = {}, {}
+	local n = #names
+	for i, name in ipairs(names) do
+		name = tostring(name)
+		el._buttons[name] = Kit.button(container, name, {
+			Name = "PageButton", Color = "Primary", TextColor = "Text", Size = UDim2.new(1 / n, -4 * (n - 1) / n, 0, 30),
+			Position = UDim2.new((i - 1) / n, (i - 1) * 4 / n, 0, 0), OnClick = function() el:Set(name) end,
+		})
+		local host = Create("Frame", { Name = "Page_" .. name, Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, 36),
+			BackgroundTransparency = 1, Visible = false, Parent = container })
+		local g = bareGroup(parent._window, host, 0)
+		g._host = host
+		g._onResize = function(h)
+			host.Size = UDim2.new(1, 0, 0, h)
+			if el._value == name then
+				el:_recompute()
+			end
+		end
+		el.Pages[name] = g
+		el[name] = g
+	end
+	function el:_recompute()
+		local g = self.Pages[self._value]
+		container.Size = UDim2.new(1, 0, 0, 36 + (g and g._contentH or 0))
+		parent:_updateCanvas()
+	end
+	el:_setValue(config.Default or names[1])
+	return el
+end
+
+----------------------------------------------------------------
+-- Spacer, Image, Custom
+----------------------------------------------------------------
+local SpacerClass = Polaris._newClass()
+function Tab:CreateSpacer(config)
+	local h = type(config) == "number" and config or (type(config) == "table" and config.Height) or 12
+	local el = Polaris._scaffold(SpacerClass, self._window, self, type(config) == "table" and config or {}, "Spacer", h)
+	return el
+end
+
+local ImageClass = Polaris._newClass()
+
+-- config: Image ("rbxassetid://123"), Height (default 120), Fit ("Fit"|"Crop"|"Stretch"), Caption, Rounded (default true)
+function Tab:CreateImage(config)
+	if type(config) == "string" then config = { Image = config } end
+	config = config or {}
+	local h = tonumber(config.Height) or 120
+	local capH = config.Caption and 20 or 0
+	local el, row = Polaris._scaffold(ImageClass, self._window, self, config, "Image", h + capH)
+	local img = Create("ImageLabel", {
+		Name = "Picture", Size = UDim2.new(1, 0, 0, h), BackgroundTransparency = 1, Image = tostring(config.Image or ""),
+		ScaleType = Enum.ScaleType[config.Fit or "Fit"] or Enum.ScaleType.Fit, Parent = row,
+	})
+	if config.Rounded ~= false then
+		Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = img })
+	end
+	if config.Caption then
+		el._caption = Kit.label(row, config.Caption, { Name = "Caption", Size = 13, Color = "SubText", Align = "Center", Height = 18, Position = UDim2.new(0, 0, 0, h + 2) })
+	end
+	el._picture = img
+	el._value = img.Image
+	return el
+end
+
+function ImageClass:_setValue(v)
+	self._value = tostring(v or "")
+	self._picture.Image = self._value
+end
+
+-- config: Height, Build = function(frame, ctx).  The escape hatch: draw anything with raw Instances inside the frame.
+-- ctx: Frame, Window, Create, Kit, Theme() (current theme table), SetHeight(h), Polaris
+local CustomClass = Polaris._newClass()
+
+function Tab:CreateCustom(config)
+	if type(config) == "function" then config = { Build = config } end
+	config = config or {}
+	local h = tonumber(config.Height) or 120
+	local el, row = Polaris._scaffold(CustomClass, self._window, self, config, "Custom", h)
+	el.Frame = row
+	local ctx = {
+		Frame = row, Window = self._window, Create = Create, Kit = Kit, Polaris = Polaris,
+		Theme = function() return Kit.theme() end,
+		SetHeight = function(newH) Polaris._setHeight(el, newH) end,
+	}
+	if type(config.Build) == "function" then
+		local ok, err = pcall(config.Build, row, ctx)
+		if not ok then
+			el.BuildError = tostring(err)
+			Kit.label(row, "Custom block error: " .. tostring(err), { Name = "BuildError", Color = Color3.fromRGB(255, 107, 120), Size = 13, Wrap = true, Height = h })
+			warn("[Polaris] Custom block error: " .. tostring(err))
+		end
+	end
+	return el
+end
+function CustomClass:SetHeight(newH) Polaris._setHeight(self, newH) end
+
+Polaris.ElementTypes = Polaris.ElementTypes or {}
+local ET = Polaris.ElementTypes
+ET.Group = function(t, c)
+	local g = t:CreateGroup(c)
+	if type(c.Items) == "table" then
+		for _, item in ipairs(c.Items) do g:Add(item.Type or item.Kind, item) end
+	end
+	return g
+end
+ET.Columns = function(t, c)
+	local cols = t:CreateColumns(c)
+	for i, list in ipairs(c.Columns or {}) do
+		if cols[i] then
+			for _, item in ipairs(list.Items or list) do cols[i]:Add(item.Type or item.Kind, item) end
+		end
+	end
+	return cols
+end
+ET.Pages = function(t, c)
+	local names = c.Names
+	if not names and type(c.Pages) == "table" then
+		names = {}
+		for _, p in ipairs(c.Pages) do table.insert(names, p.Name) end
+	end
+	local pages = t:CreatePages({ Names = names, Default = c.Default, Flag = c.Flag, Callback = c.Callback })
+	for _, p in ipairs(c.Pages or {}) do
+		local g = pages.Pages[tostring(p.Name)]
+		if g then
+			for _, item in ipairs(p.Items or {}) do g:Add(item.Type or item.Kind, item) end
+		end
+	end
+	return pages
+end
+ET.Spacer = function(t, c) return t:CreateSpacer(c) end
+ET.Image = function(t, c) return t:CreateImage(c) end
+ET.Custom = function(t, c) return t:CreateCustom(c) end
+
+end
+
+----------------------------------------------------------------
+-- module: 12_data.luau
+----------------------------------------------------------------
+do
+-- data widgets: Table, Chart, Form.
+
+local Create, themed, Element, Tab = I.Create, I.themed, I.Element, I.Tab
+local Kit = Polaris.Kit
+local scaffold, newClass = Polaris._scaffold, Polaris._newClass
+
+local function clampInt(v, lo, hi, default)
+	v = tonumber(v) or default
+	return math.max(lo, math.min(hi, math.floor(v)))
+end
+
+local function copyRow(r)
+	local out = {}
+	for k, v in pairs(r) do out[k] = v end
+	return out
+end
+
+----------------------------------------------------------------
+-- Table
+----------------------------------------------------------------
+local TableEl = newClass()
+
+local function colName(c) return type(c) == "table" and tostring(c.Name) or tostring(c) end
+
+local function cellValue(row, colIndex, cols)
+	local v = row[colIndex]
+	if v == nil then v = row[colName(cols[colIndex])] end
+	return v
+end
+
+function TableEl:_rebuild()
+	if self._destroyed or not self._body then return end
+	local cols = self._cols
+	local view = {}
+	local filter = self._filter and self._filter:lower() or ""
+	for i, row in ipairs(self._rows) do
+		local keep = filter == ""
+		if not keep then
+			for c = 1, #cols do
+				if tostring(cellValue(row, c, cols) or ""):lower():find(filter, 1, true) then keep = true break end
+			end
+		end
+		if keep then table.insert(view, i) end
+	end
+	if self._sortCol then
+		local c, asc = self._sortCol, self._sortAsc
+		table.sort(view, function(a, b)
+			local x, y = cellValue(self._rows[a], c, cols), cellValue(self._rows[b], c, cols)
+			local nx, ny = tonumber(x), tonumber(y)
+			local less
+			if nx and ny then
+				if nx == ny then return a < b end
+				less = nx < ny
+			else
+				local sx, sy = tostring(x or ""):lower(), tostring(y or ""):lower()
+				if sx == sy then return a < b end
+				less = sx < sy
+			end
+			if asc then return less end
+			return not less
+		end)
+	end
+	self._view = view
+	Kit.clear(self._body)
+	local shown = math.min(#view, self._maxRows)
+	local total = 0
+	for pos = 1, shown do
+		local idx = view[pos]
+		local row = self._rows[idx]
+		local selected = self._selected == idx
+		local b = Create("TextButton", {
+			Name = "Row", Size = UDim2.new(1, -6, 0, 26), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+			AutoButtonColor = false, Text = "", LayoutOrder = pos, Parent = self._body,
+		})
+		Kit.paint(b, "BackgroundColor3", selected and "Accent" or ((self._zebra and pos % 2 == 0) and "Primary" or "Secondary"))
+		b.BackgroundTransparency = selected and 0.55 or 0
+		local x = 0
+		for c = 1, #cols do
+			local w = self._widths[c]
+			Kit.label(b, tostring(cellValue(row, c, cols) == nil and "" or cellValue(row, c, cols)), {
+				Name = "Cell", Size = 13, Truncate = true, Height = 26, Width = w, WidthOffset = -8,
+				Position = UDim2.new(x, 8, 0, 0),
+			})
+			x += w
+		end
+		b.Activated:Connect(function()
+			self._selected = idx
+			self:_rebuild()
+			if self._config.Callback then I.invokeCallback(self._config.Callback, idx, copyRow(row)) end
+		end)
+		total += 28
+	end
+	if shown == 0 then
+		Kit.label(self._body, self._config.Empty or "No rows", { Name = "Empty", Size = 13, Color = "SubText", Align = "Center", Height = 30 })
+	end
+	if #view > shown then
+		Kit.label(self._body, ("Showing the first %d of %d rows. Use the search box."):format(shown, #view), { Name = "More", Size = 12, Color = "SubText", Align = "Center", Height = 20, LayoutOrder = 100000 })
+	end
+	self._body.CanvasSize = UDim2.new(0, 0, 0, total + 24)
+	for c, btn in ipairs(self._headerButtons) do
+		local arrow = ""
+		if self._sortCol == c then arrow = self._sortAsc and "  ^" or "  v" end
+		btn.Text = colName(cols[c]) .. arrow
+	end
+end
+
+-- config: Columns = { "Name", "Qty" } or { { Name = "Name", Width = 2 }, ... }, Rows = { { "Sword", 3 }, { Name = "Bow", Qty = 1 } },
+--         Height (default 200), Sortable (default true), Search (default false), Zebra (default true), MaxRows (default 300),
+--         Callback(index, row) when a row is tapped, Empty (text)
+function Tab:CreateTable(config)
+	config = config or {}
+	assert(type(config.Columns) == "table" and #config.Columns > 0, "[Polaris] Table: Columns must be a non-empty list")
+	local h = tonumber(config.Height) or 200
+	local el, row = scaffold(TableEl, self._window, self, config, "Table", h)
+	el._cols = config.Columns
+	el._zebra = config.Zebra ~= false
+	el._maxRows = clampInt(config.MaxRows, 10, 2000, 300)
+	el._rows, el._headerButtons = {}, {}
+	local weights, sum = {}, 0
+	for i, c in ipairs(el._cols) do
+		weights[i] = type(c) == "table" and tonumber(c.Width) or 1
+		sum += weights[i]
+	end
+	el._widths = {}
+	for i, w in ipairs(weights) do el._widths[i] = w / sum end
+
+	local y = 0
+	if config.Search then
+		local box = Kit.input(row, { Name = "TableSearch", Placeholder = "Search ...", Size = UDim2.new(1, -6, 0, 28) })
+		el._search = box
+		el:_track(box:GetPropertyChangedSignal("Text"):Connect(function()
+			el._filter = box.Text
+			el:_rebuild()
+		end))
+		y = 32
+	end
+	local header = Kit.frame(row, { Name = "TableHeader", Color = "Primary", Radius = 6, Size = UDim2.new(1, -6, 0, 28), Position = UDim2.new(0, 0, 0, y) })
+	local x = 0
+	for c = 1, #el._cols do
+		local w = el._widths[c]
+		local btn = Create("TextButton", {
+			Name = "HeaderCell", Size = UDim2.new(w, -8, 1, 0), Position = UDim2.new(x, 8, 0, 0), BackgroundTransparency = 1,
+			Text = colName(el._cols[c]), Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = header,
+		})
+		themed(btn, "TextColor3", "Text")
+		if config.Sortable ~= false then
+			btn.Activated:Connect(function()
+				if el._sortCol == c then el._sortAsc = not el._sortAsc else el._sortCol, el._sortAsc = c, true end
+				el:_rebuild()
+			end)
+		end
+		el._headerButtons[c] = btn
+		x += w
+	end
+	el._body = Kit.scroll(row, { Name = "TableBody", Size = UDim2.new(1, 0, 0, math.max(40, h - y - 32)), Position = UDim2.new(0, 0, 0, y + 32), Padding = 2 })
+	el:SetRows(config.Rows or {})
+	return el
+end
+
+function TableEl:SetRows(rows)
+	self._rows = {}
+	for _, r in ipairs(rows or {}) do
+		if type(r) == "table" then table.insert(self._rows, copyRow(r)) end
+	end
+	self._selected = nil
+	self._value = self._rows
+	self:_rebuild()
+end
+function TableEl:_setValue(v) self:SetRows(v) end
+function TableEl:AddRow(r)
+	table.insert(self._rows, copyRow(r))
+	self._value = self._rows
+	self:_rebuild()
+	return #self._rows
+end
+function TableEl:RemoveRow(i)
+	if self._rows[i] then
+		table.remove(self._rows, i)
+		if self._selected == i then self._selected = nil elseif self._selected and self._selected > i then self._selected -= 1 end
+		self:_rebuild()
+		return true
+	end
+	return false
+end
+function TableEl:Clear() self:SetRows({}) end
+function TableEl:GetRows()
+	local out = {}
+	for i, r in ipairs(self._rows) do out[i] = copyRow(r) end
+	return out
+end
+function TableEl:Count() return #self._rows end
+function TableEl:GetSelected()
+	if self._selected and self._rows[self._selected] then return self._selected, copyRow(self._rows[self._selected]) end
+	return nil
+end
+function TableEl:Sort(column, ascending)
+	for i, c in ipairs(self._cols) do
+		if colName(c) == tostring(column) or i == column then
+			self._sortCol, self._sortAsc = i, ascending ~= false
+			self:_rebuild()
+			return true
+		end
+	end
+	return false
+end
+function TableEl:SetFilter(text)
+	self._filter = tostring(text or "")
+	if self._search then self._search.Text = self._filter end
+	self:_rebuild()
+end
+function TableEl:GetView()
+	local out = {}
+	for pos, idx in ipairs(self._view or {}) do out[pos] = copyRow(self._rows[idx]) end
+	return out
+end
+
+----------------------------------------------------------------
+-- Chart: bar and line charts drawn with plain Frames
+----------------------------------------------------------------
+local Chart = newClass()
+local PALETTE = {
+	Color3.fromRGB(100, 140, 255), Color3.fromRGB(255, 140, 90), Color3.fromRGB(100, 210, 150),
+	Color3.fromRGB(230, 110, 190), Color3.fromRGB(240, 200, 80), Color3.fromRGB(150, 110, 255),
+}
+
+local function seriesOf(config)
+	local list = {}
+	if type(config.Series) == "table" then
+		for i, s in ipairs(config.Series) do
+			table.insert(list, { Name = tostring(s.Name or ("Series " .. i)), Values = s.Values or {}, Color = s.Color })
+		end
+	elseif type(config.Values) == "table" then
+		table.insert(list, { Name = tostring(config.SeriesName or "Value"), Values = config.Values, Color = config.Color })
+	end
+	return list
+end
+
+function Chart:_draw()
+	if self._destroyed or not self._plot then return end
+	local plot = self._plot
+	Kit.clear(plot)
+	local series, labels = self._series, self._labels
+	local n = 0
+	for _, s in ipairs(series) do n = math.max(n, #s.Values) end
+	n = math.max(n, #labels)
+	local lo, hi = self._min, self._max
+	if hi == nil then
+		hi = 0
+		for _, s in ipairs(series) do for _, v in ipairs(s.Values) do hi = math.max(hi, tonumber(v) or 0) end end
+		if hi <= lo then hi = lo + 1 end
+	end
+	self._scaleMax = hi
+	local span = hi - lo
+	local kind = self._type
+	local ns = math.max(1, #series)
+	local showValues = self._showValues ~= false and n <= 12
+	local function ratio(v) return math.max(0, math.min(1, ((tonumber(v) or 0) - lo) / span)) end
+	-- baseline
+	Kit.frame(plot, { Name = "Baseline", Color = "Stroke", Radius = 0, Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, 0) })
+	if n == 0 then
+		Kit.label(plot, self._config.Empty or "No data", { Name = "Empty", Size = 13, Color = "SubText", Align = "Center", Height = 30, Position = UDim2.new(0, 0, 0.5, -15) })
+		return
+	end
+	if kind == "line" then
+		local abs = plot.AbsoluteSize
+		local W = (abs and abs.X and abs.X > 10) and abs.X or 400
+		local H = (abs and abs.Y and abs.Y > 10) and abs.Y or 120
+		for si, s in ipairs(series) do
+			local color = s.Color or PALETTE[(si - 1) % #PALETTE + 1]
+			local prev
+			for i = 1, #s.Values do
+				local fx = n == 1 and 0.5 or (i - 1) / (n - 1)
+				local px, py = fx * W, (1 - ratio(s.Values[i])) * H
+				if prev then
+					local dx, dy = px - prev[1], py - prev[2]
+					local len = math.sqrt(dx * dx + dy * dy)
+					local seg = Create("Frame", {
+						Name = "Segment", AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = color, BorderSizePixel = 0,
+						Size = UDim2.new(0, len + 1, 0, 2), Position = UDim2.new(0, (px + prev[1]) / 2, 0, (py + prev[2]) / 2),
+						Rotation = math.deg(math.atan2(dy, dx)), Parent = plot,
+					})
+				end
+				Create("Frame", { Name = "Point", AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = color, BorderSizePixel = 0,
+					Size = UDim2.new(0, 7, 0, 7), Position = UDim2.new(0, px, 0, py), Parent = plot })
+				if showValues and ns == 1 then
+					Kit.label(plot, tostring(s.Values[i]), { Name = "Value", Size = 11, Color = "SubText", Align = "Center", Width = 0, WidthOffset = 40, Height = 14,
+						Position = UDim2.new(0, px - 20, 0, math.max(0, py - 18)) })
+				end
+				prev = { px, py }
+			end
+		end
+	else
+		local slot = 1 / n
+		local barW = slot * 0.7 / ns
+		for si, s in ipairs(series) do
+			local color = s.Color or PALETTE[(si - 1) % #PALETTE + 1]
+			for i = 1, #s.Values do
+				local r = ratio(s.Values[i])
+				local x = (i - 1) * slot + slot * 0.15 + (si - 1) * barW
+				local bar = Create("Frame", {
+					Name = "Bar", BackgroundColor3 = color, BorderSizePixel = 0,
+					Size = UDim2.new(barW, 0, r, 0), Position = UDim2.new(x, 0, 1 - r, 0), Parent = plot,
+				})
+				Create("UICorner", { CornerRadius = UDim.new(0, 3), Parent = bar })
+				if showValues and ns == 1 then
+					Kit.label(plot, tostring(s.Values[i]), { Name = "Value", Size = 11, Color = "SubText", Align = "Center", Width = barW, Height = 14,
+						Position = UDim2.new(x, 0, 1 - r, -15) })
+				end
+			end
+		end
+	end
+	-- x labels (under the plot, in the row container)
+	if self._labelHost then
+		Kit.clear(self._labelHost)
+		for i = 1, n do
+			local text = labels[i]
+			if text ~= nil and (n <= 14 or i % math.ceil(n / 14) == 1) then
+				local fx = (kind == "line") and (n == 1 and 0.5 or (i - 1) / (n - 1)) or ((i - 0.5) / n)
+				Kit.label(self._labelHost, tostring(text), { Name = "XLabel", Size = 11, Color = "SubText", Align = "Center", Width = 0, WidthOffset = 60, Height = 16,
+					Position = UDim2.new(fx, -30, 0, 0), Truncate = true })
+			end
+		end
+	end
+end
+
+-- config: Type ("bar" or "line"), Title, Labels = {...}, Values = {...} or Series = { { Name, Values, Color } },
+--         Height (default 180), Min (default 0), Max (default: biggest value), ShowValues (default true), MaxPoints (default 60)
+function Tab:CreateChart(config)
+	config = config or {}
+	local h = tonumber(config.Height) or 180
+	local titleH = config.Title and 22 or 0
+	local legendH = (type(config.Series) == "table" and #config.Series > 1) and 18 or 0
+	local el, row = scaffold(Chart, self._window, self, config, "Chart", h)
+	el._type = config.Type == "line" and "line" or "bar"
+	el._min, el._max = tonumber(config.Min) or 0, tonumber(config.Max)
+	el._showValues = config.ShowValues
+	el._maxPoints = clampInt(config.MaxPoints, 5, 500, 60)
+	el._series, el._labels = seriesOf(config), config.Labels or {}
+	if config.Title then
+		Kit.label(row, config.Title, { Name = "ChartTitle", Bold = true, Size = 14, Height = 20 })
+	end
+	if legendH > 0 then
+		local parts = {}
+		for i, s in ipairs(el._series) do
+			local c = s.Color or PALETTE[(i - 1) % #PALETTE + 1]
+			table.insert(parts, ('<font color="#%s">\u{25CF}</font> %s'):format(string.format("%02x%02x%02x", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5)), s.Name))
+		end
+		Kit.label(row, table.concat(parts, "   "), { Name = "Legend", Rich = true, Size = 12, Color = "SubText", Height = 16, Position = UDim2.new(0, 0, 0, titleH) })
+	end
+	local top = titleH + legendH + 4
+	local plot = Create("Frame", { Name = "Plot", Size = UDim2.new(1, -12, 0, math.max(30, h - top - 20)), Position = UDim2.new(0, 6, 0, top + 14),
+		BackgroundTransparency = 1, Parent = row })
+	el._plot = plot
+	el._labelHost = Create("Frame", { Name = "XLabels", Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 1, -18), BackgroundTransparency = 1, Parent = row })
+	plot.Position = UDim2.new(0, 6, 0, top)
+	plot.Size = UDim2.new(1, -12, 0, math.max(30, h - top - 22))
+	el._value = { Labels = el._labels, Series = el._series }
+	el:_track(plot:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() el:_draw() end))
+	el:_draw()
+	return el
+end
+
+function Chart:SetData(labels, values)
+	self._labels = labels or {}
+	self._series = { { Name = self._series[1] and self._series[1].Name or "Value", Values = values or {}, Color = self._series[1] and self._series[1].Color } }
+	self._value = { Labels = self._labels, Series = self._series }
+	self:_draw()
+end
+function Chart:SetSeries(list, labels)
+	self._series = seriesOf({ Series = list })
+	if labels then self._labels = labels end
+	self._value = { Labels = self._labels, Series = self._series }
+	self:_draw()
+end
+function Chart:_setValue(v)
+	if type(v) == "table" and v.Series then self:SetSeries(v.Series, v.Labels)
+	elseif type(v) == "table" then self:SetData(self._labels, v) end
+end
+function Chart:AddPoint(label, value)
+	local s = self._series[1]
+	if not s then
+		s = { Name = "Value", Values = {} }
+		self._series[1] = s
+	end
+	table.insert(self._labels, label ~= nil and tostring(label) or "")
+	table.insert(s.Values, tonumber(value) or 0)
+	while #s.Values > self._maxPoints do
+		table.remove(s.Values, 1)
+		table.remove(self._labels, 1)
+	end
+	self:_draw()
+end
+
+----------------------------------------------------------------
+-- Form: labelled fields + validation + Submit.   Returns a Group with extra methods.
+----------------------------------------------------------------
+-- config: Name, Fields = { { Name, Type = "Textbox"|"Number"|"Toggle"|"Dropdown"|"Slider", Default, Options, Min, Max, Required, Placeholder } },
+--         Submit (button text, default "Submit"), Callback(values) only when everything is valid, Card (default true)
+function Tab:CreateForm(config)
+	config = config or {}
+	assert(type(config.Fields) == "table" and #config.Fields > 0, "[Polaris] Form: Fields must be a non-empty list")
+	local g = self:CreateGroup({ Name = config.Name, Card = config.Card ~= false })
+	g.Fields, g._fieldDefs = {}, {}
+	local errorLabel
+	for _, f in ipairs(config.Fields) do
+		local kind = f.Type or "Textbox"
+		local el
+		if kind == "Number" then
+			el = g:CreateTextbox({ Name = f.Name, Default = f.Default ~= nil and tostring(f.Default) or "", Placeholder = f.Placeholder or "number" })
+		elseif kind == "Toggle" then
+			el = g:CreateToggle({ Name = f.Name, Default = f.Default == true })
+		elseif kind == "Dropdown" then
+			el = g:CreateDropdown({ Name = f.Name, Options = f.Options, Default = f.Default or (f.Options and f.Options[1]) })
+		elseif kind == "Slider" then
+			el = g:CreateSlider({ Name = f.Name, Min = f.Min or 0, Max = f.Max or 100, Default = f.Default, Increment = f.Increment or 1 })
+		else
+			el = g:CreateTextbox({ Name = f.Name, Default = f.Default ~= nil and tostring(f.Default) or "", Placeholder = f.Placeholder })
+		end
+		g.Fields[f.Name] = el
+		table.insert(g._fieldDefs, { Def = f, Kind = kind, El = el })
+	end
+	errorLabel = g:CreateLabel({ Text = "", Size = 13, Color = Color3.fromRGB(255, 107, 120) })
+
+	function g:GetValues()
+		local out = {}
+		for _, fd in ipairs(self._fieldDefs) do
+			local v = fd.El:Get()
+			if fd.Kind == "Number" then v = tonumber(v) end
+			out[fd.Def.Name] = v
+		end
+		return out
+	end
+	function g:SetValues(t)
+		for _, fd in ipairs(self._fieldDefs) do
+			local v = t[fd.Def.Name]
+			if v ~= nil then fd.El:Set(fd.Kind == "Number" and tostring(v) or v, true) end
+		end
+	end
+	function g:Reset()
+		for _, fd in ipairs(self._fieldDefs) do
+			local d = fd.Def.Default
+			if fd.Kind == "Toggle" then d = d == true elseif d == nil then d = (fd.Kind == "Slider") and (fd.Def.Min or 0) or "" end
+			if fd.Kind == "Dropdown" and (d == "" or d == nil) then d = fd.Def.Options and fd.Def.Options[1] end
+			if d ~= nil then fd.El:Set(fd.Kind == "Number" and tostring(d) or d, true) end
+		end
+		errorLabel:SetText("")
+	end
+	function g:Validate()
+		local problems = {}
+		for _, fd in ipairs(self._fieldDefs) do
+			local f, v = fd.Def, fd.El:Get()
+			if fd.Kind == "Number" then
+				local num = tonumber(v)
+				if (v == nil or tostring(v) == "") then
+					if f.Required then table.insert(problems, f.Name .. " is required") end
+				elseif not num then
+					table.insert(problems, f.Name .. " must be a number")
+				elseif f.Min and num < f.Min then
+					table.insert(problems, f.Name .. " must be at least " .. f.Min)
+				elseif f.Max and num > f.Max then
+					table.insert(problems, f.Name .. " must be at most " .. f.Max)
+				end
+			elseif fd.Kind == "Textbox" and f.Required and tostring(v):match("^%s*$") then
+				table.insert(problems, f.Name .. " is required")
+			end
+		end
+		return #problems == 0, problems
+	end
+	function g:Submit()
+		local ok, problems = self:Validate()
+		if not ok then
+			errorLabel:SetText(problems[1])
+			return false, problems
+		end
+		errorLabel:SetText("")
+		local values = self:GetValues()
+		if config.Callback then I.invokeCallback(config.Callback, values) end
+		return true, values
+	end
+	g:CreateButton({ Name = config.Submit or "Submit", Callback = function() g:Submit() end })
+	return g
+end
+
+Polaris.ElementTypes = Polaris.ElementTypes or {}
+Polaris.ElementTypes.Table = function(t, c) return t:CreateTable(c) end
+Polaris.ElementTypes.Chart = function(t, c) return t:CreateChart(c) end
+Polaris.ElementTypes.Form = function(t, c) return t:CreateForm(c) end
+
+end
+
+----------------------------------------------------------------
+-- module: 13_state.luau
+----------------------------------------------------------------
+do
+-- state + storage + plugins: reactive values, saved settings, and a way to define brand new element types.
+
+local Element, Tab = I.Element, I.Tab
+local Kit = Polaris.Kit
+local JSON = Polaris.Util.JSON or I.JSON
+
+----------------------------------------------------------------
+-- Storage: tiny key/value store. Files where the executor allows it, memory otherwise.
+----------------------------------------------------------------
+local memoryStores = {}
+local Storage = {}
+Storage.__index = Storage
+
+function Polaris.Storage(folder)
+	folder = tostring(folder or "Polaris_data")
+	if memoryStores[folder] then
+		return memoryStores[folder]
+	end
+	local self = setmetatable({ _folder = folder, _data = {} }, Storage)
+	self._path = I.FS and (folder .. "/storage.json") or nil
+	if self._path then
+		pcall(function()
+			if I.FS.isfile(self._path) then
+				local data = JSON.decode(I.FS.read(self._path))
+				if type(data) == "table" then self._data = data end
+			end
+		end)
+	end
+	memoryStores[folder] = self
+	return self
+end
+
+function Storage:_save()
+	if not self._path then return false end
+	local ok = pcall(function()
+		if not I.FS.isfile(self._folder .. "/.keep") then
+			pcall(I.FS.mkdir, self._folder)
+			pcall(I.FS.write, self._folder .. "/.keep", "")
+		end
+		I.FS.write(self._path, JSON.encode(self._data))
+	end)
+	return ok
+end
+function Storage:Get(key, default)
+	local v = self._data[tostring(key)]
+	if v == nil then return default end
+	return v
+end
+function Storage:Set(key, value)
+	self._data[tostring(key)] = value
+	return self:_save()
+end
+function Storage:Delete(key)
+	self._data[tostring(key)] = nil
+	return self:_save()
+end
+function Storage:Keys()
+	local out = {}
+	for k in pairs(self._data) do table.insert(out, k) end
+	table.sort(out)
+	return out
+end
+function Storage:IsPersistent() return self._path ~= nil end
+
+----------------------------------------------------------------
+-- State
+----------------------------------------------------------------
+local State = {}
+State.__index = State
+
+-- opts: Persist = "key" (saved in Storage), Folder
+function Polaris.State(initial, opts)
+	opts = opts or {}
+	local self = setmetatable({ _value = initial, _subs = {}, _next = 0 }, State)
+	if opts.Persist then
+		self._store = Polaris.Storage(opts.Folder or "Polaris_state")
+		self._key = tostring(opts.Persist)
+		local saved = self._store:Get(self._key)
+		if saved ~= nil then self._value = saved end
+	end
+	return self
+end
+
+function State:Get() return self._value end
+
+function State:_notify()
+	local snapshot = {}
+	for id, fn in pairs(self._subs) do table.insert(snapshot, { id, fn }) end
+	table.sort(snapshot, function(a, b) return a[1] < b[1] end)
+	for _, pair in ipairs(snapshot) do
+		if self._subs[pair[1]] then
+			local ok, err = pcall(pair[2], self._value)
+			if not ok then warn("[Polaris] State subscriber error: " .. tostring(err)) end
+		end
+	end
+end
+
+function State:Set(v)
+	if v == self._value and type(v) ~= "table" then return end
+	self._value = v
+	if self._store then self._store:Set(self._key, v) end
+	self:_notify()
+end
+
+function State:Update(fn)
+	self:Set(fn(self._value))
+end
+
+-- returns an object with :Disconnect()
+function State:Subscribe(fn, immediate)
+	self._next += 1
+	local id = self._next
+	self._subs[id] = fn
+	if immediate then pcall(fn, self._value) end
+	local subs = self._subs
+	return { Disconnect = function() subs[id] = nil end }
+end
+
+function State:Map(fn)
+	local derived = Polaris.State(fn(self._value))
+	derived._source = self:Subscribe(function(v) derived:Set(fn(v)) end)
+	return derived
+end
+
+function State:Destroy()
+	self._subs = {}
+	if self._source then self._source:Disconnect() end
+end
+
+-- Computed value from several states: Polaris.Computed({ a, b }, function(av, bv) return av + bv end)
+function Polaris.Computed(states, fn)
+	local function values()
+		local vals = {}
+		for i, s in ipairs(states) do vals[i] = s:Get() end
+		return table.unpack(vals)
+	end
+	local derived = Polaris.State(fn(values()))
+	derived._sources = {}
+	for _, s in ipairs(states) do
+		table.insert(derived._sources, s:Subscribe(function() derived:Set(fn(values())) end))
+	end
+	return derived
+end
+
+-- element:Bind(state, transform?)  state -> element (one way)
+function Element:Bind(state, transform)
+	local function apply(v)
+		if self._destroyed then return end
+		local out = v
+		if transform then
+			local ok, res = pcall(transform, v)
+			if not ok then warn("[Polaris] Bind transform error: " .. tostring(res)) return end
+			out = res
+		end
+		local ok, err = pcall(self.Set, self, out, true)
+		if not ok then warn("[Polaris] Bind could not set the element: " .. tostring(err)) end
+	end
+	apply(state:Get())
+	self:_track(state:Subscribe(apply))
+	return self
+end
+
+-- element:Link(state)  two way: the element writes to the state and follows it
+function Element:Link(state)
+	local previous = self._config.Callback
+	self._config.Callback = function(v, ...)
+		state:Set(v)
+		if previous then I.invokeCallback(previous, v, ...) end
+	end
+	return self:Bind(state)
+end
+
+----------------------------------------------------------------
+-- Plugins: define a new element type once, use it everywhere (Tab:CreateX, Tab:Add, specs, JSON)
+----------------------------------------------------------------
+Polaris.PluginList = {}
+Polaris.Elements = {}
+
+-- def: Height (number or function(config)), Build = function(frame, config, element, ctx), Set = function(element, value), Default
+function Polaris.DefineElement(kind, def)
+	assert(type(kind) == "string" and kind:match("^%u[%w]*$"), "[Polaris] DefineElement: kind must be a CapitalisedWord")
+	assert(type(def) == "table" and type(def.Build) == "function", "[Polaris] DefineElement: def.Build(frame, config, element, ctx) is required")
+	local existing = Polaris.ElementTypes[kind]
+	assert(not existing or Polaris.Elements[kind], "[Polaris] DefineElement: '" .. kind .. "' is a built in element type")
+	local Class = Polaris._newClass()
+	function Class:_setValue(v)
+		self._value = v
+		if def.Set then
+			local ok, err = pcall(def.Set, self, v)
+			if not ok then warn("[Polaris] " .. kind .. " Set error: " .. tostring(err)) end
+		end
+	end
+	function Class:SetHeight(h) Polaris._setHeight(self, h) end
+	Tab["Create" .. kind] = function(self, config)
+		config = config or {}
+		local h = type(def.Height) == "function" and def.Height(config) or def.Height or 60
+		local el, row = Polaris._scaffold(Class, self._window, self, config, kind, h)
+		el.Frame = row
+		if config.Default ~= nil then el._value = config.Default elseif def.Default ~= nil then el._value = def.Default end
+		local ctx = {
+			Frame = row, Window = self._window, Create = I.Create, Kit = Kit, Polaris = Polaris,
+			Theme = function() return Kit.theme() end,
+			SetHeight = function(newH) Polaris._setHeight(el, newH) end,
+		}
+		local ok, err = pcall(def.Build, row, config, el, ctx)
+		if not ok then
+			el.BuildError = tostring(err)
+			Kit.label(row, kind .. " error: " .. tostring(err), { Name = "BuildError", Color = Color3.fromRGB(255, 107, 120), Size = 13, Wrap = true, Height = h })
+			warn("[Polaris] " .. kind .. " Build error: " .. tostring(err))
+		end
+		return el
+	end
+	Polaris.ElementTypes[kind] = function(t, c) return t["Create" .. kind](t, c) end
+	Polaris.Elements[kind] = def
+	return Class
+end
+
+-- Polaris.Use(function(Polaris) ... end)  or  Polaris.Use({ Name = "x", Install = function(Polaris) end })
+function Polaris.Use(plugin, ...)
+	local name, fn = "plugin", nil
+	if type(plugin) == "function" then
+		fn = plugin
+	elseif type(plugin) == "table" and type(plugin.Install) == "function" then
+		fn, name = plugin.Install, tostring(plugin.Name or name)
+	else
+		error("[Polaris] Use expects a function or a table with an Install function", 2)
+	end
+	local ok, err = pcall(fn, Polaris, ...)
+	if not ok then
+		error("[Polaris] plugin '" .. name .. "' failed to install: " .. tostring(err), 2)
+	end
+	table.insert(Polaris.PluginList, name)
+	return Polaris
+end
+
+-- A new Builder block: Polaris.DefineBlock("Thing", { Label, Color, new, emit, apply, item, props, validate })
+function Polaris.DefineBlock(kind, def)
+	local B = I.Builder
+	assert(type(kind) == "string" and type(def) == "table", "[Polaris] DefineBlock(kind, def)")
+	for _, f in ipairs({ "new", "emit", "apply", "props" }) do
+		assert(type(def[f]) == "function", "[Polaris] DefineBlock: def." .. f .. " must be a function")
+	end
+	def.Label = def.Label or kind
+	def.Color = def.Color or Color3.fromRGB(120, 120, 140)
+	B.Kinds[kind] = def
+	for _, b in ipairs(B.BlockDefs) do
+		if b.Kind == kind then
+			b.Label, b.Color = def.Label, def.Color
+			return def
+		end
+	end
+	table.insert(B.BlockDefs, { Kind = kind, Label = def.Label, Color = def.Color })
+	return def
+end
+
+end
+
+----------------------------------------------------------------
+-- module: 14_spec.luau
+----------------------------------------------------------------
+do
+-- spec: describe an app as plain data (JSON-able), validate it, and build it.
+--   Polaris.Spec.Validate(spec)  -> cleanSpec, problems     never throws, drops anything unknown or unsafe
+--   Polaris.Spec.Build(spec)     -> app                     real windows, tabs and elements
+--   Polaris.Spec.Describe()      -> text that explains the format (used as the prompt for an AI)
+--   Polaris.Spec.FromWords(text) -> spec                    offline, keyword based (no AI, no network)
+-- A spec can hold layout, data, state and actions from a fixed list.  It can never hold runnable code,
+-- so a spec written by an AI or a stranger cannot run anything you did not allow.
+
+local Spec = {}
+Polaris.Spec = Spec
+Polaris.Actions = {} -- your own named actions: Polaris.Actions.Ping = function(args, ctx) ... end
+
+local LIMITS = { Tabs = 12, Items = 250, Depth = 4, Text = 2000, Name = 80, List = 60, Rows = 200, State = 40, Steps = 8 }
+Spec.Limits = LIMITS
+
+local function isNum(v) return type(v) == "number" and v == v and v > -1e15 and v < 1e15 end
+local function str(v, max)
+	if type(v) ~= "string" and type(v) ~= "number" then return nil end
+	v = tostring(v)
+	-- no control characters except newline
+	v = v:gsub("[%z\1-\8\11\12\14-\31]", "")
+	if #v > (max or LIMITS.Name) then v = v:sub(1, max or LIMITS.Name) end
+	return v
+end
+local function num(v, lo, hi, default)
+	if type(v) == "string" then v = tonumber(v) end
+	if not isNum(v) then return default end
+	return math.max(lo, math.min(hi, v))
+end
+local function bool(v, default)
+	if type(v) == "boolean" then return v end
+	return default
+end
+local function list(v, max)
+	if type(v) ~= "table" then return nil end
+	-- must look like an array
+	local n = 0
+	for k in pairs(v) do
+		if type(k) ~= "number" then return nil end
+		n = math.max(n, k)
+	end
+	local out = {}
+	for i = 1, math.min(n, max or LIMITS.List) do out[i] = v[i] end
+	return out
+end
+
+local BUILTIN_ACTIONS = { Notify = true, Set = true, Add = true, Toggle = true, Reset = true, Copy = true, Goto = true, Theme = true, Run = true, AddRow = true, ClearTable = true }
+Spec.BuiltinActions = BUILTIN_ACTIONS
+
+local function hubScriptNames()
+	local names = {}
+	for _, s in ipairs(Polaris.HubScripts and Polaris.HubScripts() or {}) do names[s.Name] = true end
+	return names
+end
+
+----------------------------------------------------------------
+-- Validation
+----------------------------------------------------------------
+local function scalar(v)
+	if type(v) == "boolean" then return v end
+	if isNum(v) then return v end
+	if type(v) == "string" then return str(v, LIMITS.Text) end
+	return nil
+end
+
+local function cleanAction(a, ctx, depth)
+	depth = depth or 0
+	if a == nil then return nil end
+	if type(a) ~= "table" or depth > 2 then ctx.problem("an action must be an object like { \"Do\": \"Notify\", \"Text\": \"Hi\" }") return nil end
+	local seq = list(a, LIMITS.Steps)
+	if a.Do == "Sequence" and type(a.Steps) == "table" then seq = list(a.Steps, LIMITS.Steps) end
+	if seq and #seq > 0 then
+		local out = {}
+		for _, step in ipairs(seq) do
+			local c = cleanAction(step, ctx, depth + 1)
+			if c then table.insert(out, c) end
+		end
+		return #out > 0 and { Do = "Sequence", Steps = out } or nil
+	end
+	local d = str(a.Do or a.Action, 30)
+	if not d or not (BUILTIN_ACTIONS[d] or Polaris.Actions[d]) then
+		ctx.problem("unknown action '" .. tostring(d) .. "'")
+		return nil
+	end
+	local out = { Do = d, FromValue = bool(a.FromValue, false), FromForm = bool(a.FromForm, false) }
+	if d == "Notify" then
+		out.Title = str(a.Title, LIMITS.Name) or "Notice"
+		out.Text = str(a.Text, 300) or ""
+	elseif d == "Set" or d == "Add" or d == "Toggle" or d == "Reset" then
+		out.Key = str(a.Key, 40)
+		if not out.Key or not ctx.stateKeys[out.Key] then
+			ctx.problem(d .. " needs a Key that is declared in State (got '" .. tostring(a.Key) .. "')")
+			return nil
+		end
+		if d == "Set" then
+			out.Value = scalar(a.Value)
+			if out.Value == nil and not out.FromValue then ctx.problem("Set needs a Value") return nil end
+		elseif d == "Add" then
+			out.Value = num(a.Value, -1e9, 1e9, 1)
+		end
+	elseif d == "Copy" then
+		out.Text = str(a.Text, LIMITS.Text) or ""
+	elseif d == "Goto" then
+		out.Tab = str(a.Tab, LIMITS.Name)
+		if not out.Tab then ctx.problem("Goto needs Tab") return nil end
+	elseif d == "Theme" then
+		out.Value = str(a.Value, 30)
+		if not out.FromValue and not (out.Value and Polaris.Themes[out.Value]) then
+			ctx.problem("Theme '" .. tostring(a.Value) .. "' does not exist")
+			return nil
+		end
+	elseif d == "Run" then
+		out.Script = str(a.Script, LIMITS.Name)
+		if not out.Script or not hubScriptNames()[out.Script] then
+			ctx.problem("Run can only start the built-in hub scripts (got '" .. tostring(a.Script) .. "')")
+			return nil
+		end
+	elseif d == "AddRow" or d == "ClearTable" then
+		out.Table = str(a.Table, 40)
+		if not out.Table then ctx.problem(d .. " needs Table (the Id of a Table)") return nil end
+		if d == "AddRow" then
+			out.Values = {}
+			if type(a.Values) == "table" then
+				local n = 0
+				for k, v in pairs(a.Values) do
+					n += 1
+					if n <= 20 and (type(k) == "string" or type(k) == "number") and scalar(v) ~= nil then out.Values[k] = scalar(v) end
+				end
+			end
+		end
+	else
+		-- a custom registered action: pass through plain scalar args only
+		out.Args = {}
+		for k, v in pairs(a) do
+			if type(k) == "string" and k ~= "Do" and k ~= "Action" and scalar(v) ~= nil then out.Args[k] = scalar(v) end
+		end
+	end
+	return out
+end
+
+local cleanItems
+
+local function cleanFields(v, ctx)
+	local out = {}
+	for _, f in ipairs(list(v, 20) or {}) do
+		if type(f) == "table" and str(f.Name) then
+			local kind = str(f.Type, 12) or "Textbox"
+			if kind ~= "Textbox" and kind ~= "Number" and kind ~= "Toggle" and kind ~= "Dropdown" and kind ~= "Slider" then
+				ctx.problem("form field type '" .. kind .. "' is not allowed")
+			else
+				local field = { Name = str(f.Name), Type = kind, Required = bool(f.Required, false) }
+				field.Default = scalar(f.Default)
+				field.Placeholder = str(f.Placeholder, 80)
+				field.Min, field.Max = num(f.Min, -1e9, 1e9, nil), num(f.Max, -1e9, 1e9, nil)
+				if kind == "Dropdown" then
+					field.Options = {}
+					for _, o in ipairs(list(f.Options, 30) or {}) do if str(o) then table.insert(field.Options, str(o)) end end
+					if #field.Options == 0 then ctx.problem("Dropdown field '" .. field.Name .. "' needs Options") field = nil end
+				end
+				if field then
+					field.Key = str(f.Key, 40)
+					if field.Key and not ctx.stateKeys[field.Key] then field.Key = nil end
+					table.insert(out, field)
+				end
+			end
+		end
+	end
+	return out
+end
+
+local ITEM = {}
+
+ITEM.Label = function(it, ctx)
+	local color = str(it.Color, 20)
+	if color ~= "Accent" and color ~= "SubText" and color ~= "Text" then color = nil end
+	return { Text = str(it.Text, LIMITS.Text) or "", Size = num(it.Size, 10, 36, 14), Color = color }
+end
+ITEM.Section = function(it) return { Name = str(it.Name) or "Section" } end
+ITEM.Spacer = function(it) return { Height = num(it.Height, 2, 120, 12) } end
+ITEM.Button = function(it, ctx)
+	return { Name = str(it.Name) or "Button", Action = cleanAction(it.Action, ctx) }
+end
+ITEM.Toggle = function(it, ctx)
+	local key = str(it.Key, 40)
+	if key and not ctx.stateKeys[key] then ctx.problem("Toggle Key '" .. key .. "' is not declared in State") key = nil end
+	return { Name = str(it.Name) or "Toggle", Default = bool(it.Default, false), Key = key, Action = cleanAction(it.Action, ctx) }
+end
+ITEM.Slider = function(it, ctx)
+	local lo, hi = num(it.Min, -1e6, 1e6, 0), num(it.Max, -1e6, 1e6, 100)
+	if hi <= lo then hi = lo + 1 end
+	local key = str(it.Key, 40)
+	if key and not ctx.stateKeys[key] then ctx.problem("Slider Key '" .. key .. "' is not declared in State") key = nil end
+	return { Name = str(it.Name) or "Slider", Min = lo, Max = hi, Default = num(it.Default, lo, hi, lo), Increment = num(it.Increment, 0.001, 1e6, 1), Key = key, Action = cleanAction(it.Action, ctx) }
+end
+ITEM.Dropdown = function(it, ctx)
+	local opts = {}
+	for _, o in ipairs(list(it.Options, 40) or {}) do if str(o) then table.insert(opts, str(o)) end end
+	if #opts == 0 then ctx.problem("Dropdown needs Options") return nil end
+	local key = str(it.Key, 40)
+	if key and not ctx.stateKeys[key] then ctx.problem("Dropdown Key '" .. key .. "' is not declared in State") key = nil end
+	return { Name = str(it.Name) or "Choose", Options = opts, Default = str(it.Default), Key = key, Action = cleanAction(it.Action, ctx) }
+end
+ITEM.Textbox = function(it, ctx)
+	local key = str(it.Key, 40)
+	if key and not ctx.stateKeys[key] then ctx.problem("Textbox Key '" .. key .. "' is not declared in State") key = nil end
+	return { Name = str(it.Name) or "Text", Default = str(it.Default, 200) or "", Placeholder = str(it.Placeholder, 80), Key = key, Action = cleanAction(it.Action, ctx) }
+end
+ITEM.Progress = function(it, ctx)
+	local key = str(it.Key, 40)
+	if key and not ctx.stateKeys[key] then ctx.problem("Progress Key '" .. key .. "' is not declared in State") key = nil end
+	return { Name = str(it.Name) or "Progress", Max = num(it.Max, 1, 1e9, 100), Value = num(it.Value, 0, 1e9, 0), Key = key }
+end
+ITEM.Stats = function(it)
+	local items = {}
+	for _, s in ipairs(list(it.Items, 12) or {}) do
+		s = str(s, 30)
+		if s and Polaris.StatsProviders[s] then table.insert(items, s) end
+	end
+	if #items == 0 then items = { "FPS", "Ping", "Players" } end
+	return { Items = items }
+end
+ITEM.Table = function(it, ctx)
+	local cols = {}
+	for _, c in ipairs(list(it.Columns, 12) or {}) do
+		local n = type(c) == "table" and str(c.Name) or str(c)
+		if n then table.insert(cols, { Name = n, Width = type(c) == "table" and num(c.Width, 0.2, 10, 1) or 1 }) end
+	end
+	if #cols == 0 then ctx.problem("Table needs Columns") return nil end
+	local rows = {}
+	for _, r in ipairs(list(it.Rows, LIMITS.Rows) or {}) do
+		if type(r) == "table" then
+			local row = {}
+			for k, v in pairs(r) do
+				if (type(k) == "number" or type(k) == "string") and scalar(v) ~= nil then row[k] = scalar(v) end
+			end
+			table.insert(rows, row)
+		end
+	end
+	return { Id = str(it.Id, 40), Columns = cols, Rows = rows, Height = num(it.Height, 80, 600, 200), Search = bool(it.Search, false), Sortable = bool(it.Sortable, true) }
+end
+ITEM.Chart = function(it, ctx)
+	local out = { ChartType = (it.Style == "line" or it.ChartType == "line") and "line" or "bar", Title = str(it.Title), Height = num(it.Height, 80, 500, 180), Min = num(it.Min, -1e9, 1e9, 0), Max = num(it.Max, -1e9, 1e9, nil) }
+	out.Labels = {}
+	for _, l in ipairs(list(it.Labels, 60) or {}) do table.insert(out.Labels, str(l, 30) or "") end
+	local function vals(v)
+		local o = {}
+		for _, x in ipairs(list(v, 60) or {}) do table.insert(o, num(x, -1e9, 1e9, 0)) end
+		return o
+	end
+	if type(it.Series) == "table" then
+		out.Series = {}
+		for _, s in ipairs(list(it.Series, 6) or {}) do
+			if type(s) == "table" then table.insert(out.Series, { Name = str(s.Name) or "Series", Values = vals(s.Values) }) end
+		end
+	else
+		out.Values = vals(it.Values)
+	end
+	return out
+end
+ITEM.Image = function(it, ctx)
+	local img = str(it.Image, 60) or ""
+	if not img:match("^rbxassetid://%d+$") then
+		ctx.problem("Image must look like rbxassetid://123456 (links to other sites are not allowed)")
+		return nil
+	end
+	local fit = it.Fit
+	if fit ~= "Crop" and fit ~= "Stretch" then fit = "Fit" end
+	return { Image = img, Height = num(it.Height, 30, 400, 120), Fit = fit, Caption = str(it.Caption, 120) }
+end
+ITEM.HubScripts = function(it)
+	local only = {}
+	for _, n in ipairs(list(it.Only, 20) or {}) do if str(n) then table.insert(only, str(n)) end end
+	return { Only = only, Height = num(it.Height, 120, 600, 300) }
+end
+ITEM.Form = function(it, ctx)
+	local fields = cleanFields(it.Fields, ctx)
+	if #fields == 0 then ctx.problem("Form needs Fields") return nil end
+	return { Name = str(it.Name), Fields = fields, Submit = str(it.Submit, 40) or "Submit", Action = cleanAction(it.Action, ctx) }
+end
+ITEM.Group = function(it, ctx, depth)
+	return { Name = str(it.Name), Card = bool(it.Card, false), Collapsible = bool(it.Collapsible, false), Open = bool(it.Open, true), Items = cleanItems(it.Items, ctx, depth + 1) }
+end
+ITEM.Columns = function(it, ctx, depth)
+	local out = { Count = num(it.Count, 1, 4, 2), Columns = {} }
+	for i, c in ipairs(list(it.Columns, 4) or {}) do
+		out.Columns[i] = { Items = cleanItems(type(c) == "table" and (c.Items or c) or {}, ctx, depth + 1) }
+	end
+	if #out.Columns == 0 then ctx.problem("Columns needs Columns = [ {Items}, {Items} ]") return nil end
+	out.Count = math.max(out.Count, #out.Columns)
+	return out
+end
+ITEM.Pages = function(it, ctx, depth)
+	local out = { Pages = {} }
+	for _, p in ipairs(list(it.Pages, 8) or {}) do
+		if type(p) == "table" and str(p.Name) then
+			table.insert(out.Pages, { Name = str(p.Name), Items = cleanItems(p.Items, ctx, depth + 1) })
+		end
+	end
+	if #out.Pages == 0 then ctx.problem("Pages needs Pages = [ {Name, Items} ]") return nil end
+	out.Default = str(it.Default)
+	return out
+end
+Spec.ItemTypes = ITEM
+
+cleanItems = function(items, ctx, depth)
+	local out = {}
+	if depth > LIMITS.Depth then ctx.problem("nesting is too deep") return out end
+	for _, it in ipairs(list(items, LIMITS.Items) or {}) do
+		if ctx.count >= LIMITS.Items then ctx.problem("too many items (limit " .. LIMITS.Items .. ")") break end
+		if type(it) ~= "table" then
+			ctx.problem("an item must be an object")
+		else
+			local kind = str(it.Type, 20)
+			local fn = kind and ITEM[kind]
+			if not fn then
+				ctx.problem("item type '" .. tostring(kind) .. "' is not allowed. Allowed: " .. Spec.TypeList())
+			else
+				ctx.count += 1
+				local clean = fn(it, ctx, depth)
+				if clean then
+					clean.Type = kind
+					clean.Id = clean.Id or str(it.Id, 40)
+					if kind == "Label" then
+						-- interpolation keys are validated at build time against State
+					end
+					table.insert(out, clean)
+				end
+			end
+		end
+	end
+	return out
+end
+
+function Spec.TypeList()
+	local names = {}
+	for k in pairs(ITEM) do table.insert(names, k) end
+	table.sort(names)
+	return table.concat(names, ", ")
+end
+
+function Spec.Validate(spec)
+	local problems = {}
+	local ctx = { count = 0, stateKeys = {}, problem = function(msg) if #problems < 30 then table.insert(problems, msg) end end }
+	if type(spec) ~= "table" then
+		return nil, { "the spec must be a JSON object" }
+	end
+	local clean = { Name = str(spec.Name) or "My App", State = {}, Tabs = {} }
+	local theme = str(spec.Theme, 30)
+	if theme and Polaris.Themes[theme] then clean.Theme = theme elseif theme then ctx.problem("theme '" .. theme .. "' does not exist") end
+	clean.Persist = bool(spec.Persist, false)
+	if type(spec.State) == "table" then
+		local n = 0
+		for k, v in pairs(spec.State) do
+			if type(k) == "string" and k:match("^[%a_][%w_]*$") and #k <= 40 then
+				n += 1
+				if n > LIMITS.State then ctx.problem("too many State keys") break end
+				local val = scalar(v)
+				if val == nil then ctx.problem("State '" .. k .. "' must be a number, text or true/false") else clean.State[k] = val; ctx.stateKeys[k] = true end
+			else
+				ctx.problem("State key '" .. tostring(k) .. "' is not a plain word")
+			end
+		end
+	end
+	for _, t in ipairs(list(spec.Tabs, LIMITS.Tabs) or {}) do
+		if type(t) == "table" then
+			table.insert(clean.Tabs, { Name = str(t.Name) or ("Tab " .. (#clean.Tabs + 1)), Items = cleanItems(t.Items, ctx, 1) })
+		end
+	end
+	if #clean.Tabs == 0 then
+		ctx.problem("the spec needs at least one tab: \"Tabs\": [ { \"Name\": \"Home\", \"Items\": [ ... ] } ]")
+		return nil, problems
+	end
+	return clean, problems
+end
+
+----------------------------------------------------------------
+-- Build
+----------------------------------------------------------------
+local function interpolateKeys(text)
+	local keys = {}
+	for k in tostring(text):gmatch("{([%a_][%w_]*)}") do keys[k] = true end
+	return keys
+end
+
+local function fmt(v)
+	if type(v) == "number" then
+		if v == math.floor(v) then return tostring(math.floor(v)) end
+		return string.format("%.2f", v)
+	end
+	return tostring(v)
+end
+
+function Spec.Build(spec, opts)
+	opts = opts or {}
+	local clean, problems = Spec.Validate(spec)
+	if not clean then error("[Polaris] Spec.Build: " .. table.concat(problems, "; "), 2) end
+	local app = { Spec = clean, Problems = problems, States = {}, Tabs = {}, Ids = {}, Elements = {} }
+
+	for k, v in pairs(clean.State) do
+		app.States[k] = Polaris.State(v, clean.Persist and { Persist = k, Folder = "Polaris_app_" .. clean.Name:gsub("%W", "") } or nil)
+	end
+
+	local window = Polaris:CreateWindow({ Name = clean.Name, Theme = clean.Theme, Size = opts.Size })
+	app.Window = window
+
+	local function notify(title, text)
+		Polaris:Notify({ Title = title or "Notice", Content = text or "", Duration = 3 })
+	end
+
+	local function runAction(a, value, form)
+		if not a then return end
+		local d = a.Do
+		local ok, err = pcall(function()
+			if d == "Sequence" then
+				for _, step in ipairs(a.Steps) do runAction(step, value, form) end
+			elseif d == "Notify" then
+				notify(a.Title, a.FromValue and (a.Text .. tostring(value)) or a.Text)
+			elseif d == "Set" then
+				local v = a.Value
+				if a.FromValue then v = value end
+				app.States[a.Key]:Set(v)
+			elseif d == "Add" then
+				local cur = tonumber(app.States[a.Key]:Get()) or 0
+				app.States[a.Key]:Set(cur + (a.Value or 1))
+			elseif d == "Toggle" then
+				app.States[a.Key]:Set(not app.States[a.Key]:Get())
+			elseif d == "Reset" then
+				app.States[a.Key]:Set(clean.State[a.Key])
+			elseif d == "Copy" then
+				if type(setclipboard) == "function" then setclipboard(a.Text) notify("Copied", "On your clipboard.") else notify("Cannot copy here", a.Text) end
+			elseif d == "Goto" then
+				for name, tab in pairs(app.Tabs) do
+					if name == a.Tab then window:_selectTab(tab) end
+				end
+			elseif d == "Theme" then
+				local name = a.FromValue and tostring(value) or a.Value
+				if Polaris.Themes[name] then Polaris:SetTheme(name) end
+			elseif d == "Run" then
+				for _, s in ipairs(Polaris.HubScripts()) do
+					if s.Name == a.Script and s.Run then s.Run() end
+				end
+			elseif d == "AddRow" then
+				local tbl = app.Ids[a.Table]
+				if tbl and tbl.AddRow then
+					local row = {}
+					if a.FromForm and type(form) == "table" then
+						for k, v in pairs(form) do row[k] = v end
+					end
+					for k, v in pairs(a.Values or {}) do row[k] = v end
+					tbl:AddRow(row)
+				end
+			elseif d == "ClearTable" then
+				local tbl = app.Ids[a.Table]
+				if tbl and tbl.Clear then tbl:Clear() end
+			elseif Polaris.Actions[d] then
+				Polaris.Actions[d](a.Args or {}, { App = app, Value = value, Form = form })
+			end
+		end)
+		if not ok then warn("[Polaris] action '" .. tostring(d) .. "' failed: " .. tostring(err)) end
+	end
+	app.RunAction = function(_, a, v) runAction(a, v) end
+
+	local buildItems
+
+	local function buildItem(target, it)
+		local t = it.Type
+		local el
+		local function register(e)
+			if e and it.Id then app.Ids[it.Id] = e end
+			if e then table.insert(app.Elements, e) end
+			return e
+		end
+		if t == "Label" then
+			local keys = interpolateKeys(it.Text)
+			local function render()
+				return (it.Text:gsub("{([%a_][%w_]*)}", function(k) local s = app.States[k] return s and fmt(s:Get()) or "{" .. k .. "}" end))
+			end
+			el = target:CreateLabel({ Text = render(), Size = it.Size, Color = it.Color })
+			for k in pairs(keys) do
+				if app.States[k] then el:_track(app.States[k]:Subscribe(function() el:SetText(render()) end)) end
+			end
+		elseif t == "Section" then
+			el = target:CreateSection({ Name = it.Name })
+		elseif t == "Spacer" then
+			el = target:CreateSpacer({ Height = it.Height })
+		elseif t == "Button" then
+			el = target:CreateButton({ Name = it.Name, Callback = function() runAction(it.Action) end })
+		elseif t == "Toggle" then
+			local def = it.Default
+			if it.Key then def = app.States[it.Key]:Get() == true end
+			el = target:CreateToggle({ Name = it.Name, Default = def, Callback = function(v) runAction(it.Action, v) end })
+			if it.Key then el:Link(app.States[it.Key]) end
+		elseif t == "Slider" then
+			local def = it.Default
+			if it.Key and tonumber(app.States[it.Key]:Get()) then def = tonumber(app.States[it.Key]:Get()) end
+			el = target:CreateSlider({ Name = it.Name, Min = it.Min, Max = it.Max, Default = def, Increment = it.Increment, Callback = function(v) runAction(it.Action, v) end })
+			if it.Key then el:Link(app.States[it.Key]) end
+		elseif t == "Dropdown" then
+			local def = it.Default
+			if it.Key then def = tostring(app.States[it.Key]:Get()) end
+			local found = false
+			for _, o in ipairs(it.Options) do if o == def then found = true end end
+			if not found then def = it.Options[1] end
+			el = target:CreateDropdown({ Name = it.Name, Options = it.Options, Default = def, Callback = function(v) runAction(it.Action, v) end })
+			if it.Key then el:Link(app.States[it.Key]) end
+		elseif t == "Textbox" then
+			local def = it.Default
+			if it.Key then def = tostring(app.States[it.Key]:Get()) end
+			el = target:CreateTextbox({ Name = it.Name, Default = def, Placeholder = it.Placeholder, Callback = function(v) runAction(it.Action, v) end })
+			if it.Key then el:Link(app.States[it.Key]) end
+		elseif t == "Progress" then
+			el = target:CreateProgress({ Name = it.Name, Max = it.Max, Value = it.Value })
+			if it.Key then el:Bind(app.States[it.Key], function(v) return tonumber(v) or 0 end) end
+		elseif t == "Stats" then
+			el = target:CreateStats({ Items = it.Items })
+		elseif t == "Table" then
+			el = target:CreateTable({ Columns = it.Columns, Rows = it.Rows, Height = it.Height, Search = it.Search, Sortable = it.Sortable })
+		elseif t == "Chart" then
+			el = target:CreateChart({ Type = it.ChartType, Title = it.Title, Labels = it.Labels, Values = it.Values, Series = it.Series, Height = it.Height, Min = it.Min, Max = it.Max })
+		elseif t == "Image" then
+			el = target:CreateImage({ Image = it.Image, Height = it.Height, Fit = it.Fit, Caption = it.Caption })
+		elseif t == "HubScripts" then
+			local all, picked = Polaris.HubScripts(), {}
+			local only = {}
+			for _, n in ipairs(it.Only) do only[n] = true end
+			for _, s in ipairs(all) do if #it.Only == 0 or only[s.Name] then table.insert(picked, s) end end
+			el = target:CreateScriptLibrary({ Scripts = picked, Height = it.Height, Folder = "app_" .. clean.Name:gsub("%W", "") })
+		elseif t == "Form" then
+			el = target:CreateForm({ Name = it.Name, Fields = it.Fields, Submit = it.Submit, Callback = function(values)
+				for _, f in ipairs(it.Fields) do
+					if f.Key and app.States[f.Key] then app.States[f.Key]:Set(values[f.Name]) end
+				end
+				runAction(it.Action, nil, values)
+			end })
+		elseif t == "Group" then
+			el = target:CreateGroup({ Name = it.Name, Card = it.Card, Collapsible = it.Collapsible, Open = it.Open })
+			buildItems(el, it.Items)
+		elseif t == "Columns" then
+			el = target:CreateColumns({ Count = it.Count })
+			for i, c in ipairs(it.Columns) do
+				if el[i] then buildItems(el[i], c.Items) end
+			end
+		elseif t == "Pages" then
+			local names = {}
+			for _, p in ipairs(it.Pages) do table.insert(names, p.Name) end
+			el = target:CreatePages({ Names = names, Default = it.Default })
+			for _, p in ipairs(it.Pages) do
+				local g = el.Pages[p.Name]
+				if g then buildItems(g, p.Items) end
+			end
+		end
+		return register(el)
+	end
+
+	buildItems = function(target, items)
+		for _, it in ipairs(items) do
+			local ok, err = pcall(buildItem, target, it)
+			if not ok then
+				warn("[Polaris] could not build a " .. tostring(it.Type) .. ": " .. tostring(err))
+				table.insert(app.Problems, "could not build a " .. tostring(it.Type) .. ": " .. tostring(err))
+			end
+		end
+	end
+
+	for _, t in ipairs(clean.Tabs) do
+		local tab = window:CreateTab({ Name = t.Name })
+		app.Tabs[t.Name] = tab
+		buildItems(tab, t.Items)
+	end
+
+	function app:GetState(key) return self.States[key] and self.States[key]:Get() end
+	function app:SetState(key, v) if self.States[key] then self.States[key]:Set(v) end end
+	function app:ToJSON(pretty) return Polaris.Util.JSON.encode(self.Spec, pretty) end
+	function app:Destroy()
+		if self.Window and self.Window.Destroy then pcall(self.Window.Destroy, self.Window) end
+		for _, s in pairs(self.States) do s:Destroy() end
+	end
+	return app
+end
+
+----------------------------------------------------------------
+-- Describe: the format explained for an AI (or a human)
+----------------------------------------------------------------
+function Spec.Describe()
+	local actions = {}
+	for k in pairs(BUILTIN_ACTIONS) do table.insert(actions, k) end
+	for k in pairs(Polaris.Actions) do table.insert(actions, k) end
+	table.sort(actions)
+	return table.concat({
+		"You design apps for the Polaris UI framework. Reply with ONE JSON object and nothing else (no markdown, no comments).",
+		"Format: { \"Name\": text, \"Theme\": optional theme name, \"State\": { key: number|text|true/false }, \"Tabs\": [ { \"Name\": text, \"Items\": [ item, ... ] } ] }",
+		"Every item is an object with a \"Type\" and an optional \"Id\". Allowed Types: " .. Spec.TypeList() .. ".",
+		"Label {Text (may use {stateKey}), Size, Color: Accent|SubText|Text}; Section {Name}; Spacer {Height}; Button {Name, Action}; Toggle/Slider/Dropdown/Textbox {Name, Default, Key (a State key), Action; Slider: Min, Max, Increment; Dropdown: Options}; Progress {Name, Value, Max, Key}; Stats {Items from FPS, Ping, Players, Memory};",
+		"Table {Id, Columns [text], Rows [[...]], Height, Search}; Chart {Style: bar|line, Title, Labels [text], Values [number] or Series [{Name, Values}], Height}; Image {Image: rbxassetid://123, Height}; HubScripts {Only: [names]};",
+		"Form {Name, Fields [{Name, Type: Textbox|Number|Toggle|Dropdown|Slider, Required, Options, Key}], Submit, Action}; Group {Name, Card, Collapsible, Items}; Columns {Count, Columns [{Items}]}; Pages {Pages [{Name, Items}]}.",
+		"Actions are objects { \"Do\": name, ... } or an array of up to " .. LIMITS.Steps .. " of them. Names: " .. table.concat(actions, ", ") .. ".",
+		"Notify {Title, Text}; Set {Key, Value}; Add {Key, Value}; Toggle {Key}; Reset {Key}; Copy {Text}; Goto {Tab}; Theme {Value}; Run {Script: a built-in hub script name}; AddRow {Table: Id, Values, FromForm: true}; ClearTable {Table}.",
+		"FromValue: true makes Set, Theme or Notify use the value the user just picked. Keys in actions must exist in State.",
+		"Rules: no code, no URLs, no scripts. Keep it small and useful. Example:",
+		'{"Name":"Clicker","State":{"count":0},"Tabs":[{"Name":"Play","Items":[{"Type":"Label","Text":"Clicks: {count}","Size":22},{"Type":"Button","Name":"Click me","Action":{"Do":"Add","Key":"count","Value":1}},{"Type":"Button","Name":"Reset","Action":{"Do":"Reset","Key":"count"}}]}]}',
+	}, "\n")
+end
+
+end
+
+----------------------------------------------------------------
+-- module: 15_imagine.luau
+----------------------------------------------------------------
+do
+-- imagine: describe an app in words -> a validated spec -> a real window.
+--   Polaris.Imagine("a clicker game with a score chart")            offline Demo provider (keywords, no AI)
+--   Polaris.Imagine(prompt, { Provider = "Perplexity", ApiKey = k })  asks Perplexity for a spec (needs your key + HTTP)
+--   Polaris.Imagine(prompt, { Provider = function(system, user) return jsonText end })   any AI you like
+-- Whatever comes back is checked by Polaris.Spec.Validate first: unknown things are dropped and no code is ever run.
+
+local Util = Polaris.Util
+local JSON, Http = Util.JSON, Util.Http
+local Spec = Polaris.Spec
+
+local Imagine = {}
+Polaris.ImagineProviders = {}
+
+----------------------------------------------------------------
+-- Offline generator: keywords -> spec pieces
+----------------------------------------------------------------
+local PIECES = {}
+local ORDER = {}
+local function piece(name, words, build)
+	PIECES[name] = { Words = words, Build = build }
+	table.insert(ORDER, name)
+end
+
+piece("counter", { "count", "click", "tap", "score", "game", "clicker", "tycoon", "points" }, function(spec)
+	spec.State.count = spec.State.count or 0
+	spec.State.perClick = spec.State.perClick or 1
+	table.insert(spec.Tabs, { Name = "Play", Items = {
+		{ Type = "Label", Text = "Score: {count}", Size = 26, Color = "Accent" },
+		{ Type = "Button", Name = "Tap!", Action = { Do = "Add", Key = "count", Value = 1 } },
+		{ Type = "Slider", Name = "Points per tap", Min = 1, Max = 10, Default = 1, Key = "perClick" },
+		{ Type = "Button", Name = "Bonus tap (uses the slider)", Action = { Do = "Add", Key = "count", Value = 5 } },
+		{ Type = "Progress", Name = "Goal: 100", Value = 0, Max = 100, Key = "count" },
+		{ Type = "Button", Name = "Start again", Action = { { Do = "Reset", Key = "count" }, { Do = "Notify", Title = "Reset", Text = "Score is back to 0." } } },
+	} })
+end)
+
+piece("dashboard", { "dashboard", "stats", "chart", "graph", "analytics", "monitor", "report", "overview" }, function(spec)
+	table.insert(spec.Tabs, { Name = "Overview", Items = {
+		{ Type = "Stats", Items = { "FPS", "Ping", "Players", "Memory" } },
+		{ Type = "Columns", Count = 2, Columns = {
+			{ Items = { { Type = "Chart", Title = "This week", Labels = { "Mon", "Tue", "Wed", "Thu", "Fri" }, Values = { 4, 7, 5, 9, 6 }, Height = 170 } } },
+			{ Items = { { Type = "Chart", Style = "line", Title = "Trend", Labels = { "1", "2", "3", "4", "5", "6" }, Values = { 2, 4, 3, 6, 5, 8 }, Height = 170 } } },
+		} },
+		{ Type = "Table", Columns = { "Name", "Score", "Rank" }, Rows = { { "Ada", 92, 1 }, { "Bo", 85, 2 }, { "Cy", 77, 3 } }, Height = 150, Search = true },
+	} })
+end)
+
+piece("tracker", { "track", "tracker", "list", "todo", "to-do", "inventory", "log", "notes", "tasks", "shop", "items", "collection" }, function(spec)
+	table.insert(spec.Tabs, { Name = "Tracker", Items = {
+		{ Type = "Form", Name = "Add an entry", Submit = "Add", Fields = {
+			{ Name = "Item", Type = "Textbox", Required = true, Placeholder = "What is it?" },
+			{ Name = "Amount", Type = "Number", Required = true, Min = 0, Max = 9999, Default = 1 },
+			{ Name = "Done", Type = "Toggle" },
+		}, Action = { { Do = "AddRow", Table = "entries", FromForm = true }, { Do = "Notify", Title = "Saved", Text = "Entry added." } } },
+		{ Type = "Table", Id = "entries", Columns = { "Item", "Amount", "Done" }, Rows = {}, Height = 200, Search = true },
+		{ Type = "Button", Name = "Clear all", Action = { Do = "ClearTable", Table = "entries" } },
+	} })
+end)
+
+piece("settings", { "settings", "options", "preferences", "config", "menu", "panel", "control" }, function(spec)
+	spec.State.sound = spec.State.sound == nil and true or spec.State.sound
+	spec.State.volume = spec.State.volume or 50
+	spec.State.name = spec.State.name or "Player"
+	table.insert(spec.Tabs, { Name = "Settings", Items = {
+		{ Type = "Section", Name = "You" },
+		{ Type = "Textbox", Name = "Your name", Key = "name" },
+		{ Type = "Label", Text = "Hello {name}. Sound is {sound}, volume {volume}." },
+		{ Type = "Section", Name = "Sound" },
+		{ Type = "Toggle", Name = "Sound on", Key = "sound" },
+		{ Type = "Slider", Name = "Volume", Min = 0, Max = 100, Key = "volume" },
+		{ Type = "Section", Name = "Look" },
+		{ Type = "Dropdown", Name = "Theme", Options = { "Default", "Midnight" }, Action = { Do = "Theme", FromValue = true } },
+	} })
+end)
+
+piece("hub", { "hub", "scripts", "script", "library", "loader" }, function(spec)
+	table.insert(spec.Tabs, { Name = "Scripts", Items = {
+		{ Type = "Label", Text = "Safe built-in scripts. Tap one to run it.", Size = 13, Color = "SubText" },
+		{ Type = "HubScripts", Height = 320 },
+	} })
+end)
+
+piece("about", { "about", "info", "help", "welcome", "guide" }, function(spec)
+	table.insert(spec.Tabs, { Name = "About", Items = {
+		{ Type = "Group", Name = "What is this", Card = true, Items = { { Type = "Label", Text = "Made with Polaris from a few words.", Wrap = true } } },
+		{ Type = "Group", Name = "Open for more", Collapsible = true, Open = false, Items = { { Type = "Label", Text = "Everything here came from a plain description." } } },
+	} })
+end)
+
+local function titleFrom(prompt)
+	local words = {}
+	for w in tostring(prompt):gmatch("[%a%d']+") do
+		if #words < 3 and #w > 2 and not ({ the = true, and_ = true, with = true, for_ = true, make = true, create = true, build = true, that = true })[w:lower()] then
+			table.insert(words, w:sub(1, 1):upper() .. w:sub(2):lower())
+		end
+	end
+	return #words > 0 and table.concat(words, " ") or "My App"
+end
+
+function Spec.FromWords(prompt)
+	local text = " " .. tostring(prompt or ""):lower() .. " "
+	local spec = { Name = titleFrom(prompt), State = {}, Tabs = {} }
+	for _, name in ipairs(ORDER) do
+		local p = PIECES[name]
+		local hit = false
+		for _, w in ipairs(p.Words) do
+			if text:find(w, 1, true) then hit = true break end
+		end
+		if hit and name ~= "about" or (name == "about" and text:find("about", 1, true)) then
+			p.Build(spec)
+		end
+	end
+	if #spec.Tabs == 0 then
+		PIECES.about.Build(spec)
+		PIECES.counter.Build(spec)
+	end
+	if #spec.Tabs > 4 then
+		for i = #spec.Tabs, 5, -1 do table.remove(spec.Tabs, i) end
+	end
+	return spec
+end
+
+----------------------------------------------------------------
+-- Providers
+----------------------------------------------------------------
+Polaris.ImagineProviders.Demo = function()
+	return function(_, user)
+		return Spec.FromWords(user)
+	end
+end
+
+-- Perplexity Agent API. Your own API key; kept in memory only. Untested against the live service.
+Polaris.ImagineProviders.Perplexity = function(opts)
+	opts = opts or {}
+	local base = opts.BaseUrl or "https://api.perplexity.ai"
+	local parser = Polaris.Research.Providers.Perplexity({}).parse
+	return function(system, user)
+		local key = opts.ApiKey
+		if type(key) ~= "string" or #key < 8 then error("Paste your Perplexity API key first.", 0) end
+		if not Http.Available() then error("This place cannot make HTTP requests (needs an executor with request() or HttpService).", 0) end
+		local headers = { ["Authorization"] = "Bearer " .. key, ["Content-Type"] = "application/json" }
+		local res = Http.Request({ Url = base .. "/v1/agent", Method = "POST", Headers = headers, Body = {
+			effort = opts.Effort or "fast", input = user, instructions = system,
+		} })
+		if not res.Success then
+			error(("Perplexity said no (HTTP %s): %s"):format(tostring(res.StatusCode), tostring(res.Body):sub(1, 160)), 0)
+		end
+		local resp = JSON.decode(res.Body)
+		if type(resp) ~= "table" then error("Perplexity sent back something that is not JSON.", 0) end
+		local terminal = { completed = true, failed = true, cancelled = true, incomplete = true }
+		local started = os.clock()
+		while resp.status and not terminal[resp.status] do
+			if os.clock() - started > (opts.Timeout or 120) then error("Timed out waiting for Perplexity.", 0) end
+			task.wait(2)
+			local poll = Http.Request({ Url = base .. "/v1/agent/" .. tostring(resp.id), Method = "GET", Headers = headers })
+			if not poll.Success then error("Could not read the answer from Perplexity.", 0) end
+			resp = JSON.decode(poll.Body) or resp
+		end
+		if resp.status == "failed" or resp.status == "cancelled" then error("Perplexity could not finish: " .. tostring(resp.status), 0) end
+		local text = parser(resp)
+		if text == "" then error("Perplexity returned no text.", 0) end
+		return text
+	end
+end
+
+local function resolveProvider(p, opts)
+	p = p or "Demo"
+	if type(p) == "function" then return p end
+	if type(p) == "table" and type(p.Complete) == "function" then
+		return function(...) return p:Complete(...) end
+	end
+	if type(p) == "string" then
+		local make = Polaris.ImagineProviders[p]
+		assert(make, "[Polaris] Imagine: unknown provider '" .. p .. "'. Built in: Demo, Perplexity")
+		return make(opts)
+	end
+	error("[Polaris] Imagine: Provider must be a name, a function(system, user) or a table with Complete", 0)
+end
+
+-- pull a JSON object out of an AI reply (fences, chatter before/after)
+function Spec.Extract(reply)
+	if type(reply) == "table" then return reply end
+	if type(reply) ~= "string" then return nil, "no reply" end
+	local text = reply:gsub("```%w*", "")
+	local first, last = text:find("{"), nil
+	for i = #text, 1, -1 do
+		if text:sub(i, i) == "}" then last = i break end
+	end
+	if not first or not last or last < first then return nil, "no JSON object in the reply" end
+	local ok, value, err = pcall(JSON.decode, text:sub(first, last))
+	if not ok then return nil, tostring(value) end
+	if type(value) ~= "table" then return nil, tostring(err or "reply was not a JSON object") end
+	return value
+end
+
+-- Polaris.Imagine(prompt, opts) -> app, problems, spec     (yields while it waits for an AI)
+-- opts: Provider, ApiKey, Build (false = only return the checked spec), Attempts (default 2), Size
+function Polaris.Imagine(prompt, opts)
+	opts = opts or {}
+	prompt = tostring(prompt or "")
+	if prompt:match("^%s*$") then return nil, { "Say what you want to make first." } end
+	if #prompt > 1500 then prompt = prompt:sub(1, 1500) end
+	local provider = resolveProvider(opts.Provider, opts)
+	local system = Spec.Describe()
+	local ask, clean, problems, last = prompt, nil, {}, nil
+	for attempt = 1, math.max(1, opts.Attempts or 2) do
+		local ok, reply = pcall(provider, system, ask)
+		if not ok then return nil, { tostring(reply) } end
+		local raw, err = Spec.Extract(reply)
+		if raw then
+			clean, problems = Spec.Validate(raw)
+			last = clean or last
+			if clean then break end
+		else
+			problems = { "could not read the reply: " .. tostring(err) }
+		end
+		ask = prompt .. "\n\nYour last reply had these problems, please fix them and answer with only the JSON object:\n- " .. table.concat(problems, "\n- ")
+	end
+	if not clean then return nil, problems end
+	if opts.Build == false then return nil, problems, clean end
+	local app = Spec.Build(clean, opts)
+	for _, p in ipairs(problems) do table.insert(app.Problems, p) end
+	return app, app.Problems, clean
+end
+
+----------------------------------------------------------------
+-- The Make Anything window
+----------------------------------------------------------------
+local IDEAS = {
+	{ "A clicker game with a score bar", "a clicker game with a score" },
+	{ "A dashboard with charts and a table", "a dashboard with charts and a table" },
+	{ "A tracker for items I own", "an inventory tracker with a form" },
+	{ "A settings panel", "a settings panel with sound and volume" },
+	{ "A script hub", "a script hub" },
+	{ "Everything at once", "a game with a dashboard, a tracker and settings" },
+}
+
+function Polaris.Imaginer(opts)
+	opts = opts or {}
+	local window = Polaris:CreateWindow({ Name = opts.Name or "Make Anything", Size = Vector2.new(560, 500) })
+	local self = { Window = window, Busy = false }
+	local tab = window:CreateTab({ Name = "Describe" })
+	tab:CreateLabel({ Text = "Say what you want to make. Polaris builds a real window from it.", Size = 14 })
+	local prompt = tab:CreateCodeEditor({ Height = 84, LineNumbers = false, Default = opts.Prompt or "a clicker game with a score", Placeholder = "for example: a tracker for my items" })
+	local provider = tab:CreateDropdown({ Name = "Who builds it", Options = { "Demo", "Perplexity" }, Default = opts.Provider or "Demo" })
+	local key = tab:CreateTextbox({ Name = "Perplexity key", Default = opts.ApiKey or "" })
+	tab:CreateLabel({ Text = "Demo works offline from keywords. Perplexity needs your own key (kept in memory only) and HTTP.", Size = 12, Color = "SubText" })
+	local console = tab:CreateConsole({ Name = "What happened", Height = 130 })
+	self.Console, self.Prompt = console, prompt
+
+	function self:Make(text)
+		if self.Busy then return end
+		if text then prompt:Set(text, true) end
+		self.Busy = true
+		console:Log("Making it ...", "dim")
+		task.spawn(function()
+			local app, problems, spec = Polaris.Imagine(prompt:Get(), { Provider = provider:Get(), ApiKey = key:Get() })
+			self.Busy = false
+			if not app then
+				for _, p in ipairs(problems or {}) do console:Log(p, "error") end
+				return
+			end
+			if self.LastApp then pcall(function() self.LastApp:Destroy() end) end
+			self.LastApp, self.LastSpec = app, spec
+			console:Log("Done: " .. spec.Name .. " (" .. #spec.Tabs .. " tabs).", "ok")
+			for _, p in ipairs(problems or {}) do console:Log("Skipped: " .. p, "warn") end
+		end)
+	end
+	function self:ShowSpec()
+		if not self.LastSpec then console:Log("Make something first.", "warn") return end
+		for line in (JSON.encode(self.LastSpec, true) .. "\n"):gmatch("(.-)\n") do console:Log(line, "dim") end
+	end
+	function self:CopySpec()
+		if not self.LastSpec then console:Log("Make something first.", "warn") return end
+		if type(setclipboard) == "function" then
+			setclipboard(JSON.encode(self.LastSpec, true))
+			console:Log("Spec copied. Feed it to Polaris.Spec.Build(...) anywhere.", "ok")
+		else
+			console:Log("No clipboard here. Use Show spec instead.", "warn")
+		end
+	end
+	tab:CreateButtonRow({ Buttons = {
+		{ Name = "Make it", Color = "Success", Callback = function() self:Make() end },
+		{ Name = "Show spec", Callback = function() self:ShowSpec() end },
+		{ Name = "Copy spec", Callback = function() self:CopySpec() end },
+		{ Name = "Close it", Callback = function() if self.LastApp then self.LastApp:Destroy() self.LastApp = nil end end },
+	} })
+
+	local ideas = window:CreateTab({ Name = "Ideas" })
+	ideas:CreateLabel({ Text = "Tap an idea to build it.", Size = 14 })
+	for _, idea in ipairs(IDEAS) do
+		ideas:CreateButton({ Name = idea[1], Callback = function() self:Make(idea[2]) end })
+	end
 	return self
 end
 
